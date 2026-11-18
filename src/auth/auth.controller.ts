@@ -1,16 +1,25 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { AuthService, type AuthResponse } from './auth.service';
+import { AuthService, type AuthResponse, type MessageResponse } from './auth.service';
 import { AllowPendingPassword } from './decorators/allow-pending-password.decorator';
 import { CurrentUser, type AuthUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
-import { ChangePasswordDto, LoginDto, RefreshTokenDto, RegisterDto } from './dto/auth.dto';
+import {
+  ChangePasswordDto,
+  ForgotPasswordDto,
+  LoginDto,
+  RefreshTokenDto,
+  RegisterDto,
+  ResetPasswordDto,
+  VerifyEmailQueryDto,
+} from './dto/auth.dto';
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  /** Crée un compte « user » et envoie l'e-mail de confirmation. */
   @Public()
   @Post('register')
   register(@Body() dto: RegisterDto): Promise<AuthResponse> {
@@ -45,5 +54,37 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   changePassword(@CurrentUser() user: AuthUser, @Body() dto: ChangePasswordDto): Promise<AuthResponse> {
     return this.authService.changePassword(user.id, dto);
+  }
+
+  /** Lien de confirmation envoyé par e-mail à l'inscription. */
+  @Public()
+  @Get('verify-email')
+  verifyEmail(@Query() query: VerifyEmailQueryDto): Promise<MessageResponse> {
+    return this.authService.verifyEmail(query.token);
+  }
+
+  /** Renvoie l'e-mail de confirmation à la personne connectée (au plus un par minute). */
+  @ApiBearerAuth()
+  @AllowPendingPassword()
+  @Post('resend-verification')
+  @HttpCode(HttpStatus.OK)
+  resendVerification(@CurrentUser() user: AuthUser): Promise<MessageResponse> {
+    return this.authService.resendVerification(user.id);
+  }
+
+  /** Envoie un code de réinitialisation par e-mail. Réponse identique que le compte existe ou non. */
+  @Public()
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  forgotPassword(@Body() dto: ForgotPasswordDto): Promise<MessageResponse> {
+    return this.authService.forgotPassword(dto.email);
+  }
+
+  /** Choisit un nouveau mot de passe avec le code reçu par e-mail. */
+  @Public()
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  resetPassword(@Body() dto: ResetPasswordDto): Promise<MessageResponse> {
+    return this.authService.resetPassword(dto);
   }
 }

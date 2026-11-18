@@ -65,6 +65,35 @@ export class ChangePasswordDto {
   newPassword!: string;
 }
 
+export class VerifyEmailQueryDto {
+  @ApiProperty({ description: 'Le code reçu dans le lien de confirmation.' })
+  @IsString({ message: 'token doit être un texte.' })
+  @IsNotEmpty({ message: 'Le lien de confirmation est incomplet.' })
+  token!: string;
+}
+
+export class ForgotPasswordDto {
+  @ApiProperty({ example: 'awa@exemple.ci' })
+  @Transform(trimLower)
+  @IsEmail({}, { message: 'Adresse e-mail invalide.' })
+  @IsNotEmpty({ message: 'L’adresse e-mail est obligatoire.' })
+  email!: string;
+}
+
+export class ResetPasswordDto {
+  @ApiProperty({ description: 'Le code reçu par e-mail.' })
+  @IsString({ message: 'token doit être un texte.' })
+  @IsNotEmpty({ message: 'Le code de réinitialisation est obligatoire.' })
+  token!: string;
+
+  @ApiProperty({ example: 'nouveauMotDePasse456', minLength: 8, maxLength: 72 })
+  @MaxLength(72, { message: 'Le nouveau mot de passe ne doit pas dépasser 72 caractères.' })
+  @MinLength(8, { message: 'Le nouveau mot de passe doit faire au moins 8 caractères.' })
+  @IsString({ message: 'Le nouveau mot de passe doit être un texte.' })
+  @IsNotEmpty({ message: 'Le nouveau mot de passe est obligatoire.' })
+  newPassword!: string;
+}
+
 export class RefreshTokenDto {
   @ApiProperty({ description: 'Le refreshToken reçu à la connexion.' })
   @IsString({ message: 'refreshToken doit être un texte.' })

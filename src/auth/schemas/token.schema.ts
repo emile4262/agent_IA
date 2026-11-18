@@ -4,7 +4,8 @@ import { User } from '../../users/schemas/user.schema';
 
 /**
  * refresh : jeton de renouvellement de session (7 jours).
- * email_verification et password_reset : utilisés à l'étape 1.2.
+ * email_verification : lien de confirmation de l'adresse (24 heures).
+ * password_reset : code de réinitialisation du mot de passe (1 heure).
  */
 export type TokenType = 'refresh' | 'email_verification' | 'password_reset';
 export type TokenDocument = HydratedDocument<Token>;

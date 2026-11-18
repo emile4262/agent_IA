@@ -14,7 +14,24 @@ export interface Env {
   ADMIN_EMAIL: string;
   /** Facultatif : sans lui, un mot de passe provisoire est généré et affiché au premier lancement. */
   ADMIN_PASSWORD?: string;
+  /** Adresse publique de l'API, utilisée pour construire les liens envoyés par e-mail. */
+  APP_URL: string;
+  /**
+   * Envoi des e-mails (Brevo) : mêmes variables que l'ancien agent.
+   * Absent en développement : les e-mails sont affichés dans la console au lieu d'être envoyés.
+   */
+  smtp?: SmtpConfig;
 }
+
+export interface SmtpConfig {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  from: string;
+}
+
+const SMTP_VARIABLES = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD', 'MAIL_FROM'] as const;
 
 /**
  * Affiche au démarrage ce qui a été lu dans MONGODB_URI, mot de passe masqué,
@@ -106,11 +123,44 @@ export function validateEnv(config: Record<string, unknown>): Env {
     errors.push('NODE_ENV doit valoir development, production ou test.');
   }
 
+  const rawAppUrl = typeof config.APP_URL === 'string' ? config.APP_URL.trim() : '';
+  const appUrl = (rawAppUrl || `http://localhost:${port}`).replace(/\/+$/, '');
+  if (!/^https?:\/\/[^\s/]+/.test(appUrl)) {
+    errors.push('APP_URL doit être une adresse http(s)://, par exemple http://localhost:3000.');
+  }
+
+  const smtpValues = Object.fromEntries(
+    SMTP_VARIABLES.map((name) => {
+      const value = config[name];
+      return [name, typeof value === 'string' ? value.trim() : ''];
+    }),
+  ) as Record<(typeof SMTP_VARIABLES)[number], string>;
+  const missingSmtp = SMTP_VARIABLES.filter((name) => !smtpValues[name]);
+  let smtp: SmtpConfig | undefined;
+  if (missingSmtp.length === 0) {
+    const smtpPort = Number(smtpValues.SMTP_PORT);
+    if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
+      errors.push('SMTP_PORT doit être un numéro de port valide (587 pour Brevo).');
+    }
+    smtp = {
+      host: smtpValues.SMTP_HOST,
+      port: smtpPort,
+      user: smtpValues.SMTP_USER,
+      password: smtpValues.SMTP_PASSWORD,
+      from: smtpValues.MAIL_FROM,
+    };
+  } else if (missingSmtp.length < SMTP_VARIABLES.length || nodeEnv === 'production') {
+    errors.push(`Envoi des e-mails : il manque ${missingSmtp.join(', ')}.`);
+  }
+
   if (errors.length > 0) {
     throw new Error(`Configuration invalide dans .env :\n- ${errors.join('\n- ')}`);
   }
 
   describeMongoUri(mongoUri);
+  if (!smtp) {
+    new Logger('Mail').warn('SMTP non configuré : les e-mails seront affichés dans la console au lieu d’être envoyés.');
+  }
 
   return {
     NODE_ENV: nodeEnv as Env['NODE_ENV'],
@@ -119,5 +169,7 @@ export function validateEnv(config: Record<string, unknown>): Env {
     JWT_ACCESS_SECRET: jwtSecret,
     ADMIN_EMAIL: adminEmail,
     ADMIN_PASSWORD: adminPassword || undefined,
+    APP_URL: appUrl,
+    smtp,
   };
 }
