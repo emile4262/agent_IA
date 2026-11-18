@@ -1,4 +1,3 @@
-import { createHash, randomBytes } from 'node:crypto';
 import {
   BadRequestException,
   HttpException,
@@ -11,7 +10,9 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
 import type { Model } from 'mongoose';
+import { randomToken, sha256 } from '../common/tokens';
 import type { Env } from '../config/env.validation';
+import { InvitationsService } from '../invitations/invitations.service';
 import { MailService } from '../mail/mail.service';
 import { passwordResetEmail, verificationEmail } from '../mail/mail.templates';
 import type { UserDocument, UserRole } from '../users/schemas/user.schema';
@@ -56,22 +57,42 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly mailService: MailService,
     private readonly config: ConfigService<Env, true>,
+    private readonly invitationsService: InvitationsService,
     @InjectModel(Token.name) private readonly tokenModel: Model<Token>,
   ) {}
 
+  /**
+   * Inscription libre, ou avec une invitation personnelle (invitationToken)
+   * ou le code d'un lien partagé (inviteCode), selon le mode choisi par l'admin.
+   */
   async register(dto: RegisterDto): Promise<AuthResponse> {
     const passwordHash = await hashPassword(dto.password);
-    // Le rôle n'est jamais lu depuis la requête : toute inscription crée un compte « user ».
-    const user = await this.usersService.create({
-      email: dto.email,
-      firstName: dto.firstName,
-      lastName: dto.lastName,
-      passwordHash,
-    });
-    // Un échec d'envoi ne bloque pas l'inscription : l'e-mail peut être renvoyé ensuite.
-    await this.sendVerificationEmail(user).catch((error: unknown) =>
-      this.logger.error(`E-mail de confirmation non envoyé à ${user.email}`, error instanceof Error ? error.stack : error),
-    );
+    // Réserve la place (invitation utilisée, compteur du lien) avant de créer le compte,
+    // pour qu'un même code ne serve pas deux fois en parallèle.
+    const admission = await this.invitationsService.admit(dto.email, dto.invitationToken, dto.inviteCode);
+
+    let user: UserDocument;
+    try {
+      // Le rôle n'est jamais lu depuis la requête : toute inscription crée un compte « user ».
+      user = await this.usersService.create({
+        email: dto.email,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        passwordHash,
+        // L'invitation a été reçue à cette adresse : elle est donc déjà confirmée.
+        emailVerified: admission.emailVerified,
+      });
+    } catch (error) {
+      await admission.release();
+      throw error;
+    }
+
+    if (!user.emailVerified) {
+      // Un échec d'envoi ne bloque pas l'inscription : l'e-mail peut être renvoyé ensuite.
+      await this.sendVerificationEmail(user).catch((error: unknown) =>
+        this.logger.error(`E-mail de confirmation non envoyé à ${user.email}`, error instanceof Error ? error.stack : error),
+      );
+    }
     return this.issueTokens(user);
   }
 
@@ -98,7 +119,7 @@ export class AuthService {
   }
 
   async logout(refreshToken: string): Promise<void> {
-    await this.tokenModel.deleteOne({ tokenHash: AuthService.sha256(refreshToken), type: 'refresh' });
+    await this.tokenModel.deleteOne({ tokenHash: sha256(refreshToken), type: 'refresh' });
   }
 
   /**
@@ -201,11 +222,11 @@ export class AuthService {
   }
 
   private async createToken(user: UserDocument, type: TokenType, ttlMs: number): Promise<string> {
-    const token = randomBytes(48).toString('base64url');
+    const token = randomToken();
     await this.tokenModel.create({
       userId: user._id,
       type,
-      tokenHash: AuthService.sha256(token),
+      tokenHash: sha256(token),
       expiresAt: new Date(Date.now() + ttlMs),
     });
     return token;
@@ -214,7 +235,7 @@ export class AuthService {
   /** Retrouve un jeton valide et le supprime aussitôt : il ne peut servir qu'une fois. */
   private consumeToken(token: string, type: TokenType) {
     return this.tokenModel.findOneAndDelete({
-      tokenHash: AuthService.sha256(token),
+      tokenHash: sha256(token),
       type,
       expiresAt: { $gt: new Date() },
     });
@@ -230,9 +251,5 @@ export class AuthService {
     const accessToken = await this.jwtService.signAsync(payload);
     const refreshToken = await this.createToken(user, 'refresh', REFRESH_TOKEN_TTL_MS);
     return { accessToken, expiresIn: ACCESS_TOKEN_TTL_SECONDS, refreshToken, user: UsersService.toPublic(user) };
-  }
-
-  private static sha256(value: string): string {
-    return createHash('sha256').update(value).digest('hex');
   }
 }

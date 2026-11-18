@@ -4,7 +4,9 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { MongooseModule } from '@nestjs/mongoose';
 import type { Env } from '../config/env.validation';
+import { InvitationsModule } from '../invitations/invitations.module';
 import { MailModule } from '../mail/mail.module';
+import { SettingsModule } from '../settings/settings.module';
 import { UsersModule } from '../users/users.module';
 import { AdminSeeder } from './admin-seeder';
 import { AuthController } from './auth.controller';
@@ -16,6 +18,8 @@ import { Token, TokenSchema } from './schemas/token.schema';
   imports: [
     UsersModule,
     MailModule,
+    InvitationsModule,
+    SettingsModule,
     MongooseModule.forFeature([{ name: Token.name, schema: TokenSchema }]),
     JwtModule.registerAsync({
       inject: [ConfigService],

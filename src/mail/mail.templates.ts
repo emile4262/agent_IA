@@ -29,6 +29,27 @@ export function verificationEmail(to: string, firstName: string, link: string): 
   };
 }
 
+/** Pas encore d'interface web : la personne envoie le code à POST /auth/register. */
+export function invitationEmail(to: string, inviterName: string, token: string): MailMessage {
+  return {
+    to,
+    subject: 'Invitation à rejoindre la veille technologique',
+    text:
+      'Bonjour,\n\n' +
+      `${inviterName} vous invite à rejoindre la plateforme de veille technologique.\n\n` +
+      `Votre code d’invitation (valable 7 jours) :\n${token}\n\n` +
+      `Inscrivez-vous avec cette adresse (${to}) en envoyant ce code dans le champ invitationToken de POST /auth/register.\n\n` +
+      'Si vous ne vous attendiez pas à cette invitation, ignorez ce message.',
+    html:
+      '<p>Bonjour,</p>' +
+      `<p>${escapeHtml(inviterName)} vous invite à rejoindre la plateforme de veille technologique.</p>` +
+      '<p>Votre code d’invitation (valable 7 jours) :</p>' +
+      `<p><code>${escapeHtml(token)}</code></p>` +
+      `<p>Inscrivez-vous avec cette adresse (${escapeHtml(to)}) en envoyant ce code dans le champ <code>invitationToken</code> de <code>POST /auth/register</code>.</p>` +
+      '<p>Si vous ne vous attendiez pas à cette invitation, ignorez ce message.</p>',
+  };
+}
+
 /** Pas encore d'interface web : la personne colle le code dans POST /auth/reset-password. */
 export function passwordResetEmail(to: string, firstName: string, token: string): MailMessage {
   return {

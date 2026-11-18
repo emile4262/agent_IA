@@ -1,6 +1,6 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsEmail, IsNotEmpty, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 // Les règles sont vérifiées de bas en haut et seul le premier échec est renvoyé
 // (stopAtFirstError) : « obligatoire » est donc placé tout en bas.
@@ -36,6 +36,18 @@ export class RegisterDto {
   @IsString({ message: 'Le nom doit être un texte.' })
   @IsNotEmpty({ message: 'Le nom est obligatoire.' })
   lastName!: string;
+
+  @ApiPropertyOptional({ description: 'Code reçu dans un e-mail d’invitation (même adresse e-mail obligatoire).' })
+  @IsOptional()
+  @IsString({ message: 'invitationToken doit être un texte.' })
+  @IsNotEmpty({ message: 'invitationToken ne peut pas être vide.' })
+  invitationToken?: string;
+
+  @ApiPropertyOptional({ description: 'Code d’un lien d’inscription partagé par l’administrateur.' })
+  @IsOptional()
+  @IsString({ message: 'inviteCode doit être un texte.' })
+  @IsNotEmpty({ message: 'inviteCode ne peut pas être vide.' })
+  inviteCode?: string;
 }
 
 export class LoginDto {

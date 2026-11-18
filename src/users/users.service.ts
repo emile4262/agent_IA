@@ -51,11 +51,16 @@ export class UsersService {
     passwordHash: string;
     role?: UserRole;
     mustChangePassword?: boolean;
+    emailVerified?: boolean;
   }): Promise<UserDocument> {
-    if (await this.userModel.exists({ email: data.email.toLowerCase() })) {
+    if (await this.existsByEmail(data.email)) {
       throw new ConflictException('Un compte existe déjà avec cette adresse e-mail.');
     }
     return this.userModel.create({ role: 'user', ...data });
+  }
+
+  async existsByEmail(email: string): Promise<boolean> {
+    return (await this.userModel.exists({ email: email.toLowerCase() })) !== null;
   }
 
   async hasAdmin(): Promise<boolean> {

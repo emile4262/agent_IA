@@ -1,5 +1,6 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { SettingsService, type SettingsView } from '../settings/settings.service';
 import { AuthService, type AuthResponse, type MessageResponse } from './auth.service';
 import { AllowPendingPassword } from './decorators/allow-pending-password.decorator';
 import { CurrentUser, type AuthUser } from './decorators/current-user.decorator';
@@ -17,9 +18,22 @@ import {
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly settingsService: SettingsService,
+  ) {}
 
-  /** Crée un compte « user » et envoie l'e-mail de confirmation. */
+  /** Indique si l'inscription est libre (open) ou seulement sur invitation (invitation). */
+  @Public()
+  @Get('registration-mode')
+  registrationMode(): Promise<SettingsView> {
+    return this.settingsService.get();
+  }
+
+  /**
+   * Crée un compte « user ». Selon le mode d'inscription, il faut un invitationToken
+   * (invitation reçue par e-mail) ou un inviteCode (lien partagé par l'admin).
+   */
   @Public()
   @Post('register')
   register(@Body() dto: RegisterDto): Promise<AuthResponse> {
