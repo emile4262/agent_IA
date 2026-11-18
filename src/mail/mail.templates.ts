@@ -68,3 +68,38 @@ export function passwordResetEmail(to: string, firstName: string, token: string)
       '<p>Si vous n’avez rien demandé, ignorez ce message : votre mot de passe reste inchangé.</p>',
   };
 }
+
+export interface DigestEmailArticle {
+  title: string;
+  url: string;
+  topic: string;
+  score: number;
+  summary: string;
+}
+
+/** Veille du jour. Version simple : la mise en page soignée et le lien de désinscription arrivent en phase 5. */
+export function digestEmail(to: string, firstName: string, date: string, articles: DigestEmailArticle[]): MailMessage {
+  const [year, month, day] = date.split('-');
+  const label = `${day}/${month}/${year}`;
+  return {
+    to,
+    subject: `Votre veille tech du ${label} — ${articles.length} article${articles.length > 1 ? 's' : ''}`,
+    text:
+      `Bonjour ${firstName},\n\nVoici votre veille du ${label}.\n\n` +
+      articles
+        .map((article, index) => `${index + 1}. [${article.topic} · ${article.score}/10] ${article.title}\n${article.summary}\n${article.url}`)
+        .join('\n\n') +
+      '\n\nVous pouvez modifier vos sujets, vos sources et l’heure d’envoi dans vos préférences.',
+    html:
+      `<p>Bonjour ${escapeHtml(firstName)},</p><p>Voici votre veille du ${label}.</p>` +
+      articles
+        .map(
+          (article) =>
+            `<h3 style="margin-bottom:4px"><a href="${escapeHtml(article.url)}">${escapeHtml(article.title)}</a></h3>` +
+            `<p style="margin:0;color:#666;font-size:13px">${escapeHtml(article.topic)} · pertinence ${article.score}/10</p>` +
+            `<p style="margin-top:6px">${escapeHtml(article.summary)}</p>`,
+        )
+        .join('') +
+      '<p style="color:#666;font-size:13px">Vous pouvez modifier vos sujets, vos sources et l’heure d’envoi dans vos préférences.</p>',
+  };
+}

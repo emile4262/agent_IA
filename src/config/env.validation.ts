@@ -11,21 +11,13 @@ export interface Env {
   PORT: number;
   MONGODB_URI: string;
   JWT_ACCESS_SECRET: string;
-  /** Compte administrateur créé au premier lancement (voir AdminSeeder). */
   ADMIN_EMAIL: string;
-  /** Facultatif : sans lui, un mot de passe provisoire est généré et affiché au premier lancement. */
   ADMIN_PASSWORD?: string;
-  /** Adresse publique de l'API, utilisée pour construire les liens envoyés par e-mail. */
   APP_URL: string;
-  /**
-   * Envoi des e-mails (Brevo) : mêmes variables que l'ancien agent.
-   * Absent en développement : les e-mails sont affichés dans la console au lieu d'être envoyés.
-   */
   smtp?: SmtpConfig;
-  /** Résumés par l'IA. Absent en développement : les articles sont collectés mais restent en attente. */
   gemini?: GeminiConfig;
-  /** Fréquence de la collecte (expression cron, fuseau Africa/Abidjan) ; null = collecte automatique désactivée. */
   COLLECT_CRON: string | null;
+  DIGEST_CRON: string | null;
 }
 
 export interface GeminiConfig {
@@ -47,6 +39,8 @@ const SMTP_VARIABLES = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD', 
 const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-lite';
 /** Toutes les 30 minutes : les nouveaux articles sont prêts avant les envois. */
 const DEFAULT_COLLECT_CRON = '*/30 * * * *';
+/** Toutes les 15 minutes : chaque utilisateur reçoit sa veille au plus 15 minutes après son heure. */
+const DEFAULT_DIGEST_CRON = '*/15 * * * *';
 
 /**
  * Affiche au démarrage ce qui a été lu dans MONGODB_URI, mot de passe masqué,
@@ -184,11 +178,18 @@ export function validateEnv(config: Record<string, unknown>): Env {
     ? { apiKey: geminiKey, model: stringOf('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL, baseUrl: geminiBaseUrl || undefined }
     : undefined;
 
-  const rawCron = stringOf('COLLECT_CRON') || DEFAULT_COLLECT_CRON;
-  const collectCron = rawCron.toLowerCase() === 'off' ? null : rawCron;
-  if (collectCron && !isValidCron(collectCron)) {
-    errors.push(`COLLECT_CRON n'est pas une expression cron valide (reçu : ${collectCron}). Exemple : */30 * * * *, ou off.`);
-  }
+  const cronOf = (name: string, fallback: string): string | null => {
+    const raw = stringOf(name) || fallback;
+    if (raw.toLowerCase() === 'off') {
+      return null;
+    }
+    if (!isValidCron(raw)) {
+      errors.push(`${name} n'est pas une expression cron valide (reçu : ${raw}). Exemple : ${fallback}, ou off.`);
+    }
+    return raw;
+  };
+  const collectCron = cronOf('COLLECT_CRON', DEFAULT_COLLECT_CRON);
+  const digestCron = cronOf('DIGEST_CRON', DEFAULT_DIGEST_CRON);
 
   if (errors.length > 0) {
     throw new Error(`Configuration invalide dans .env :\n- ${errors.join('\n- ')}`);
@@ -213,5 +214,6 @@ export function validateEnv(config: Record<string, unknown>): Env {
     smtp,
     gemini,
     COLLECT_CRON: collectCron,
+    DIGEST_CRON: digestCron,
   };
 }
