@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import type { HydratedDocument } from 'mongoose';
+import { Preferences, PreferencesSchema } from './preferences.schema';
 
 export type UserRole = 'user' | 'admin';
 export type UserDocument = HydratedDocument<User>;
@@ -31,6 +32,10 @@ export class User {
 
   @Prop({ default: true })
   active!: boolean;
+
+  /** Choix de veille ; les comptes créés avant la phase 2 reçoivent les valeurs par défaut à la lecture. */
+  @Prop({ type: PreferencesSchema, default: () => ({}) })
+  preferences!: Preferences;
 
   createdAt!: Date;
   updatedAt!: Date;

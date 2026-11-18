@@ -4,6 +4,8 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { validateEnv, type Env } from './config/env.validation';
 import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health/health.module';
+import { PreferencesModule } from './preferences/preferences.module';
+import { SourcesModule } from './sources/sources.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
@@ -24,6 +26,8 @@ import { UsersModule } from './users/users.module';
     HealthModule,
     UsersModule,
     AuthModule,
+    SourcesModule,
+    PreferencesModule,
   ],
 })
 export class AppModule {}
