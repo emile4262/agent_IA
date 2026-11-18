@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { validate as isValidCron } from 'node-cron';
 
 /**
  * Vérifie les variables d'environnement au démarrage.
@@ -21,6 +22,17 @@ export interface Env {
    * Absent en développement : les e-mails sont affichés dans la console au lieu d'être envoyés.
    */
   smtp?: SmtpConfig;
+  /** Résumés par l'IA. Absent en développement : les articles sont collectés mais restent en attente. */
+  gemini?: GeminiConfig;
+  /** Fréquence de la collecte (expression cron, fuseau Africa/Abidjan) ; null = collecte automatique désactivée. */
+  COLLECT_CRON: string | null;
+}
+
+export interface GeminiConfig {
+  apiKey: string;
+  model: string;
+  /** Facultatif : autre adresse que celle de Google (proxy, tests). */
+  baseUrl?: string;
 }
 
 export interface SmtpConfig {
@@ -32,6 +44,9 @@ export interface SmtpConfig {
 }
 
 const SMTP_VARIABLES = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD', 'MAIL_FROM'] as const;
+const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-lite';
+/** Toutes les 30 minutes : les nouveaux articles sont prêts avant les envois. */
+const DEFAULT_COLLECT_CRON = '*/30 * * * *';
 
 /**
  * Affiche au démarrage ce qui a été lu dans MONGODB_URI, mot de passe masqué,
@@ -153,6 +168,28 @@ export function validateEnv(config: Record<string, unknown>): Env {
     errors.push(`Envoi des e-mails : il manque ${missingSmtp.join(', ')}.`);
   }
 
+  const stringOf = (name: string): string => {
+    const value = config[name];
+    return typeof value === 'string' ? value.trim() : '';
+  };
+  const geminiKey = stringOf('GEMINI_API_KEY');
+  const geminiBaseUrl = stringOf('GEMINI_BASE_URL');
+  if (geminiBaseUrl && !/^https?:\/\/[^\s/]+/.test(geminiBaseUrl)) {
+    errors.push('GEMINI_BASE_URL doit être une adresse http(s)://.');
+  }
+  if (!geminiKey && nodeEnv === 'production') {
+    errors.push('GEMINI_API_KEY est obligatoire en production (résumés des articles).');
+  }
+  const gemini: GeminiConfig | undefined = geminiKey
+    ? { apiKey: geminiKey, model: stringOf('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL, baseUrl: geminiBaseUrl || undefined }
+    : undefined;
+
+  const rawCron = stringOf('COLLECT_CRON') || DEFAULT_COLLECT_CRON;
+  const collectCron = rawCron.toLowerCase() === 'off' ? null : rawCron;
+  if (collectCron && !isValidCron(collectCron)) {
+    errors.push(`COLLECT_CRON n'est pas une expression cron valide (reçu : ${collectCron}). Exemple : */30 * * * *, ou off.`);
+  }
+
   if (errors.length > 0) {
     throw new Error(`Configuration invalide dans .env :\n- ${errors.join('\n- ')}`);
   }
@@ -160,6 +197,9 @@ export function validateEnv(config: Record<string, unknown>): Env {
   describeMongoUri(mongoUri);
   if (!smtp) {
     new Logger('Mail').warn('SMTP non configuré : les e-mails seront affichés dans la console au lieu d’être envoyés.');
+  }
+  if (!gemini) {
+    new Logger('Collecte').warn('GEMINI_API_KEY absent : les articles seront collectés mais pas résumés.');
   }
 
   return {
@@ -171,5 +211,7 @@ export function validateEnv(config: Record<string, unknown>): Env {
     ADMIN_PASSWORD: adminPassword || undefined,
     APP_URL: appUrl,
     smtp,
+    gemini,
+    COLLECT_CRON: collectCron,
   };
 }

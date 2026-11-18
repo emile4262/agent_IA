@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { validateEnv, type Env } from './config/env.validation';
 import { AuthModule } from './auth/auth.module';
+import { CollectorModule } from './collector/collector.module';
 import { HealthModule } from './health/health.module';
 import { PreferencesModule } from './preferences/preferences.module';
 import { SourcesModule } from './sources/sources.module';
@@ -28,6 +29,7 @@ import { UsersModule } from './users/users.module';
     AuthModule,
     SourcesModule,
     PreferencesModule,
+    CollectorModule,
   ],
 })
 export class AppModule {}

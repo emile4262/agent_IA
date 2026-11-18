@@ -60,6 +60,16 @@ export class SourcesService {
     return sources.map((source) => SourcesService.toAdminView(source));
   }
 
+  /** Sources à lire par la collecte. */
+  findActive(): Promise<SourceDocument[]> {
+    return this.sourceModel.find({ active: true }).exec();
+  }
+
+  /** Note le résultat de la dernière lecture du flux (error = null si tout s'est bien passé). */
+  async recordFetch(id: string, error: string | null): Promise<void> {
+    await this.sourceModel.updateOne({ _id: id }, { lastFetchedAt: new Date(), lastError: error });
+  }
+
   /** Vérifie qu'une liste d'identifiants ne contient que des sources actives du catalogue. */
   async assertActiveIds(ids: string[]): Promise<void> {
     const invalid = ids.filter((id) => !isValidObjectId(id));
