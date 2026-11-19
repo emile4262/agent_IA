@@ -14,7 +14,7 @@ import { randomToken, sha256 } from '../common/tokens';
 import type { Env } from '../config/env.validation';
 import { InvitationsService } from '../invitations/invitations.service';
 import { MailService } from '../mail/mail.service';
-import { passwordResetEmail, verificationEmail } from '../mail/mail.templates';
+import { passwordResetEmail, verificationEmail, welcomeEmail } from '../mail/mail.templates';
 import type { UserDocument, UserRole } from '../users/schemas/user.schema';
 import { UsersService, type PublicUser } from '../users/users.service';
 import type { ChangePasswordDto, LoginDto, RegisterDto, ResetPasswordDto } from './dto/auth.dto';
@@ -87,12 +87,10 @@ export class AuthService {
       throw error;
     }
 
-    if (!user.emailVerified) {
-      // Un échec d'envoi ne bloque pas l'inscription : l'e-mail peut être renvoyé ensuite.
-      await this.sendVerificationEmail(user).catch((error: unknown) =>
-        this.logger.error(`E-mail de confirmation non envoyé à ${user.email}`, error instanceof Error ? error.stack : error),
-      );
-    }
+    // Un échec d'envoi ne bloque pas l'inscription : le lien de confirmation peut être renvoyé ensuite.
+    await this.sendWelcomeEmail(user).catch((error: unknown) =>
+      this.logger.error(`E-mail de bienvenue non envoyé à ${user.email}`, error instanceof Error ? error.stack : error),
+    );
     return this.issueTokens(user);
   }
 
@@ -204,10 +202,19 @@ export class AuthService {
     return { message: 'Mot de passe modifié. Connectez-vous avec le nouveau mot de passe.' };
   }
 
+  /** Bienvenue, avec le lien de confirmation si l'adresse n'est pas encore confirmée (pas d'invitation). */
+  private async sendWelcomeEmail(user: UserDocument): Promise<void> {
+    const link = user.emailVerified ? null : await this.verificationLink(user);
+    await this.mailService.send(welcomeEmail(user.email, user.firstName, user.preferences, link));
+  }
+
   private async sendVerificationEmail(user: UserDocument): Promise<void> {
+    await this.mailService.send(verificationEmail(user.email, user.firstName, await this.verificationLink(user)));
+  }
+
+  private async verificationLink(user: UserDocument): Promise<string> {
     const token = await this.createSingleUseToken(user, 'email_verification', EMAIL_VERIFICATION_TTL_MS);
-    const link = `${this.config.get('APP_URL', { infer: true })}/auth/verify-email?token=${token}`;
-    await this.mailService.send(verificationEmail(user.email, user.firstName, link));
+    return `${this.config.get('APP_URL', { infer: true })}/auth/verify-email?token=${token}`;
   }
 
   private async sendPasswordResetEmail(user: UserDocument): Promise<void> {

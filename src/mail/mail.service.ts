@@ -8,6 +8,8 @@ export interface MailMessage {
   subject: string;
   text: string;
   html: string;
+  /** En-têtes en plus, ex. List-Unsubscribe pour la veille. */
+  headers?: Record<string, string>;
 }
 
 /**

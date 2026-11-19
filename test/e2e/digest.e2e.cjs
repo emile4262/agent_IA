@@ -155,6 +155,28 @@ const todayUtc = () => new Date().toISOString().slice(0, 10);
     const s4 = await call('POST', '/digest/send-now', null, tokens.awa);
     check('4e envoi manuel -> 429', s4.status === 429 && /3 envois/.test(s4.body.message), JSON.stringify(s4.body));
 
+    // --- Désinscription (phase 5) ---
+    const unsub = mail.match(/http:\/\/localhost:3998\/unsubscribe\?u=([a-f0-9]{24})&t=([A-Za-z0-9_-]+)/);
+    check('e-mail : lien de désinscription', !!unsub, mail.slice(-300));
+    const page = async (method, url, body) => {
+      const res = await fetch(BASE + url, { method, headers: body ? { 'content-type': 'application/x-www-form-urlencoded' } : {}, body });
+      return { status: res.status, type: res.headers.get('content-type') ?? '', html: await res.text() };
+    };
+    const awaActive = async () => (await call('GET', '/users/me/preferences', null, tokens.awa)).body.active;
+    const unsubUrl = `/unsubscribe?u=${unsub[1]}&t=${unsub[2]}`;
+    const confirmPage = await page('GET', unsubUrl);
+    check('GET lien -> page de confirmation HTML', confirmPage.status === 200 && confirmPage.type.startsWith('text/html') && confirmPage.html.includes('<form method="post"'));
+    check('GET seul ne désinscrit pas (antivirus des messageries)', (await awaActive()) === true);
+    check('signature fausse -> 400', (await page('GET', `/unsubscribe?u=${unsub[1]}&t=faux`)).status === 400);
+    check('lien sans paramètres -> 400', (await page('POST', '/unsubscribe')).status === 400);
+    check('signature d’un autre compte -> 400', (await page('POST', `/unsubscribe?u=${'0'.repeat(24)}&t=${unsub[2]}`)).status === 400);
+    check('aucun changement après les liens faux', (await awaActive()) === true);
+    const done = await page('POST', unsubUrl, 'List-Unsubscribe=One-Click');
+    check('POST en un clic (Gmail) -> 200, désinscrite', done.status === 200 && done.html.includes('C’est fait') && (await awaActive()) === false);
+    check('POST répété -> 200', (await page('POST', unsubUrl)).status === 200);
+    check('/digest/today -> veille en pause', (await call('GET', '/digest/today', null, tokens.awa)).body.active === false);
+    check('réactivation dans les préférences', (await call('PATCH', '/users/me/preferences', { active: true }, tokens.awa)).body.active === true);
+
     // --- Historique ---
     const h = await call('GET', '/digest/history', null, tokens.awa);
     console.log('    historique : ' + JSON.stringify({ ...h.body, items: h.body.items?.map((i) => [i.createdAt, i.articles.length]) }));

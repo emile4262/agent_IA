@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { cleanSnippet, httpUrl } from '../../src/collector/feed-reader';
 import { googleNewsSearchUrl } from '../../src/collector/google-news';
-import { digestEmail, escapeHtml } from '../../src/mail/mail.templates';
+import { isValidUnsubscribe, unsubscribeLink } from '../../src/digest/unsubscribe';
+import { digestEmail, escapeHtml, welcomeEmail } from '../../src/mail/mail.templates';
 import { normalizeKeyword } from '../../src/preferences/keywords';
 
 describe('httpUrl', () => {
@@ -46,6 +47,7 @@ describe('googleNewsSearchUrl', () => {
 });
 
 describe('digestEmail', () => {
+  const LINK = 'https://veille.ci/unsubscribe?u=0123456789abcdef01234567&t=signature';
   const article = {
     title: '<img src=x onerror=alert(1)>',
     url: 'https://exemple.ci/a?x=1&y="2"',
@@ -56,7 +58,7 @@ describe('digestEmail', () => {
   };
 
   it('échappe tout le contenu venu des flux dans la version HTML', () => {
-    const { html } = digestEmail('a@b.ci', '<Emile>', '2026-11-19', [article]);
+    const { html } = digestEmail('a@b.ci', '<Emile>', '2026-11-19', [article], LINK);
     assert.ok(!html.includes('<img'));
     assert.ok(!html.includes('<Emile>'));
     assert.ok(!html.includes('<b>gras</b>'));
@@ -64,13 +66,59 @@ describe('digestEmail', () => {
   });
 
   it('affiche le mot-clé, sinon la catégorie, et la date française', () => {
-    const { subject, text } = digestEmail('a@b.ci', 'Emile', '2026-11-19', [article, { ...article, keyword: null }]);
+    const { subject, text } = digestEmail('a@b.ci', 'Emile', '2026-11-19', [article, { ...article, keyword: null }], LINK);
     assert.equal(subject, 'Votre veille du 19/11/2026 — 2 articles');
     assert.ok(text.includes('[politique · 8/10]'));
     assert.ok(text.includes('[Tech · 8/10]'));
   });
 
+  it('lien de désinscription dans le texte, le HTML et les en-têtes en un clic', () => {
+    const { text, html, headers } = digestEmail('a@b.ci', 'Emile', '2026-11-19', [article], LINK);
+    assert.ok(text.includes(LINK));
+    assert.ok(html.includes(`href="${LINK.replace('&', '&amp;')}"`));
+    assert.equal(headers?.['List-Unsubscribe'], `<${LINK}>`);
+    assert.equal(headers?.['List-Unsubscribe-Post'], 'List-Unsubscribe=One-Click');
+  });
+
   it('escapeHtml couvre les 5 caractères dangereux', () => {
     assert.equal(escapeHtml(`&<>"'`), '&amp;&lt;&gt;&quot;&#39;');
+  });
+});
+
+describe('welcomeEmail', () => {
+  const preferences = { topics: ['Backend', 'IA'], sendTime: '08:00', frequency: 'weekdays' };
+
+  it('avec un lien : bienvenue et confirmation dans le même e-mail', () => {
+    const { subject, text, html } = welcomeEmail('a@b.ci', '<Awa>', preferences, 'https://veille.ci/auth/verify-email?token=abc');
+    assert.ok(subject.startsWith('Bienvenue'));
+    assert.ok(text.includes('Confirmez votre adresse e-mail') && text.includes('https://veille.ci/auth/verify-email?token=abc'));
+    assert.ok(text.includes('du lundi au vendredi à 08:00') && text.includes('Backend, IA'));
+    assert.ok(!html.includes('<Awa>'));
+  });
+
+  it('sans lien (invitation) : pas de demande de confirmation', () => {
+    const { text, html } = welcomeEmail('a@b.ci', 'Awa', preferences, null);
+    assert.ok(!text.includes('Confirmez') && !html.includes('verify-email'));
+  });
+});
+
+describe('lien de désinscription', () => {
+  const secret = 'x'.repeat(48);
+  const userId = '0123456789abcdef01234567';
+  const params = (link: string) => new URL(link).searchParams;
+
+  it('accepte le lien signé', () => {
+    const link = params(unsubscribeLink('https://veille.ci', userId, secret));
+    assert.equal(link.get('u'), userId);
+    assert.ok(isValidUnsubscribe(link.get('u'), link.get('t'), secret));
+  });
+
+  it('refuse un autre compte, une signature modifiée ou un autre secret', () => {
+    const signature = params(unsubscribeLink('https://veille.ci', userId, secret)).get('t');
+    assert.ok(!isValidUnsubscribe('0123456789abcdef01234568', signature, secret));
+    assert.ok(!isValidUnsubscribe(userId, `${signature}x`, secret));
+    assert.ok(!isValidUnsubscribe(userId, signature, 'y'.repeat(48)));
+    assert.ok(!isValidUnsubscribe(userId, undefined, secret));
+    assert.ok(!isValidUnsubscribe(['a'], signature, secret));
   });
 });

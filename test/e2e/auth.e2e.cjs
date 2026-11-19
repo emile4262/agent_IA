@@ -272,6 +272,7 @@ async function stopApi(api) {
     await sleep(200);
     check('inscription par invitation -> 201, e-mail déjà confirmé', koffi.status === 201 && koffi.body.user.emailVerified === true && koffi.body.user.role === 'user');
     check('pas d’e-mail de confirmation pour un invité', !api.out.slice(mark).includes('Confirmez votre adresse'));
+    check('invité : e-mail de bienvenue sans lien', api.out.slice(mark).includes('Bienvenue sur la veille technologique') && !api.out.slice(mark).includes('verify-email'));
     check('invitation à usage unique', (await reg('koffi@exemple.ci', { invitationToken: invCode2 })).status === 400);
 
     const conn3 = await mongoose.createConnection(uri).asPromise();
