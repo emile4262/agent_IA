@@ -98,6 +98,9 @@ export class DigestService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(DigestService.name);
   private task: ScheduledTask | null = null;
   private running = false;
+  /** Envois en cours, attendus à l'arrêt du serveur. */
+  private current: Promise<unknown> | null = null;
+  private stopping = false;
 
   constructor(
     @InjectModel(Delivery.name) private readonly deliveryModel: Model<Delivery>,
@@ -117,15 +120,23 @@ export class DigestService implements OnApplicationBootstrap, OnModuleDestroy {
     this.task = schedule(
       expression,
       async () => {
-        await this.runScheduled().catch((error: unknown) => this.logger.error(`Envois interrompus : ${String(error)}`));
+        this.current = this.runScheduled().catch((error: unknown) => this.logger.error(`Envois interrompus : ${String(error)}`));
+        await this.current;
+        this.current = null;
       },
       { noOverlap: true, name: 'envois' },
     );
     this.logger.log(`Envois automatiques vérifiés selon « ${expression} ».`);
   }
 
+  /**
+   * Arrêt du serveur (redéploiement) : plus de nouvel envoi, mais celui en cours se termine.
+   * Sinon la veille resterait « en cours d'envoi » et ne serait jamais réessayée.
+   */
   async onModuleDestroy(): Promise<void> {
+    this.stopping = true;
     await this.task?.destroy();
+    await this.current;
   }
 
   async today(userId: string): Promise<DigestToday> {
@@ -207,6 +218,10 @@ export class DigestService implements OnApplicationBootstrap, OnModuleDestroy {
         .find({ active: true, emailVerified: true, 'preferences.active': { $ne: false } })
         .cursor();
       for await (const user of users) {
+        if (this.stopping) {
+          // Les veilles restantes partiront au redémarrage, dans le délai de grâce.
+          break;
+        }
         try {
           const outcome = await this.sendScheduled(user, sourceIds, now);
           if (outcome !== 'skipped') {

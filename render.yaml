@@ -1,0 +1,44 @@
+# Configuration Render (Blueprint) : Render → New → Blueprint → ce dépôt.
+# Les variables « sync: false » sont demandées à la création et ne sont jamais écrites ici.
+services:
+  - type: web
+    name: veille-api
+    runtime: docker
+    # Toujours allumé : les veilles sont vérifiées chaque minute (pas d'offre gratuite, qui s'endort).
+    plan: starter
+    # Le plus proche de la Côte d'Ivoire ; choisir la même région que le cluster Atlas si possible.
+    region: frankfurt
+    branch: main
+    # Déploie seulement si la CI GitHub (types, tests, image Docker) passe.
+    autoDeployTrigger: checksPass
+    healthCheckPath: /health
+    # Une seule instance : la collecte et les envois tournent dans le serveur.
+    numInstances: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: SMTP_HOST
+        value: smtp-relay.brevo.com
+      - key: SMTP_PORT
+        value: '587'
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      # Render place un proxy devant l'API : nécessaire pour lire la vraie adresse IP des visiteurs.
+      - key: TRUST_PROXY
+        value: '1'

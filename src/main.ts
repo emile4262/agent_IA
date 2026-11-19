@@ -29,9 +29,10 @@ async function bootstrap(): Promise<void> {
   );
 
   const port = config.get('PORT', { infer: true });
+  const withDocs = config.get('NODE_ENV', { infer: true }) !== 'production';
 
   // Documentation interactive pour tester l'API depuis le navigateur (désactivée en production).
-  if (config.get('NODE_ENV', { infer: true }) !== 'production') {
+  if (withDocs) {
     const document = SwaggerModule.createDocument(
       app,
       new DocumentBuilder()
@@ -47,7 +48,9 @@ async function bootstrap(): Promise<void> {
   await app.listen(port);
 
   Logger.log(`API démarrée sur http://localhost:${port} (vérification : GET /health)`, 'Bootstrap');
-  Logger.log(`Documentation Swagger : http://localhost:${port}/docs`, 'Bootstrap');
+  if (withDocs) {
+    Logger.log(`Documentation Swagger : http://localhost:${port}/docs`, 'Bootstrap');
+  }
 }
 
 bootstrap().catch((error: unknown) => {
