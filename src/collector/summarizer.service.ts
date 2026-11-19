@@ -10,6 +10,8 @@ export interface ArticleToSummarize {
   url: string;
   title: string;
   snippet: string;
+  /** Mots-clés dont la recherche a trouvé l'article : il est alors noté par rapport à eux. */
+  keywords: string[];
 }
 
 export interface Summary {
@@ -61,19 +63,30 @@ export class SummarizerService {
       throw new SummarizerUnavailableError('GEMINI_API_KEY n’est pas configuré.');
     }
     const expected = new Set(articles.map((article) => article.url));
-    const contents = `Tu es un rédacteur technique francophone spécialisé en Backend, DevOps et IA.
+    const contents = `Tu es un rédacteur francophone qui prépare une veille d'actualité, spécialisé en Backend, DevOps et IA.
 Résume chacun des ${articles.length} articles fournis. N'en omets aucun et n'en ajoute aucun.
 Pour chaque article :
 - Écris un résumé fidèle en français naturel de 2 ou 3 phrases complètes.
 - Décris les faits présents dans le titre et l'extrait. N'invente aucun détail absent.
 - Si l'extrait manque de détails, indique-le clairement dans le résumé au lieu d'inventer.
 - Traduis le titre en français et recopie exactement l'URL source.
-- Donne une note de pertinence technique de 1 à 10.
+- Donne une note de pertinence de 1 à 10 :
+  - si l'article a un champ "sujets", il a été trouvé en cherchant ces sujets : note son lien direct avec eux
+    et la qualité de l'information, quel que soit le domaine (politique, économie, sport…) ;
+  - sinon, note sa pertinence technique pour un développeur Backend, DevOps ou IA.
+- Pour la catégorie, choisis la plus proche ; un article sans rapport avec la technique va dans Tech.
 - Retourne exactement un objet par URL fournie.
 Retourne uniquement les données au format demandé.
 
 Articles RSS :
-${JSON.stringify(articles.map(({ url, title, snippet }) => ({ title, link: url, snippet: snippet.slice(0, 700) })))}`;
+${JSON.stringify(
+      articles.map(({ url, title, snippet, keywords }) => ({
+        title,
+        link: url,
+        snippet: snippet.slice(0, 700),
+        ...(keywords.length > 0 ? { sujets: keywords } : {}),
+      })),
+    )}`;
 
     const text = await this.generate(contents);
     const parsed: unknown = JSON.parse(text);
@@ -107,7 +120,7 @@ ${JSON.stringify(articles.map(({ url, title, snippet }) => ({ title, link: url, 
                   title_fr: { type: Type.STRING, description: 'Titre de l’article, traduit en français' },
                   category: { type: Type.STRING, enum: [...TOPICS] },
                   summary: { type: Type.STRING, description: 'Résumé fidèle du contenu en français, en 2 ou 3 phrases complètes' },
-                  relevance_score: { type: Type.NUMBER, description: 'Score de pertinence technique de 1 à 10' },
+                  relevance_score: { type: Type.NUMBER, description: 'Score de pertinence de 1 à 10' },
                   url: { type: Type.STRING, description: 'URL exacte de l’article source' },
                 },
                 required: ['title_fr', 'category', 'summary', 'relevance_score', 'url'],

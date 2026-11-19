@@ -1,12 +1,14 @@
 import { ConflictException, Injectable, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
-import type { Model, QueryFilter } from 'mongoose';
+import type { AnyBulkWriteOperation, Model, QueryFilter } from 'mongoose';
 import { schedule, type ScheduledTask } from 'node-cron';
 import { Article, MAX_SUMMARY_ATTEMPTS, type ArticleDocument } from '../articles/schemas/article.schema';
 import type { Env } from '../config/env.validation';
 import { SourcesService } from '../sources/sources.service';
-import { MAX_ARTICLE_AGE_MS, readFeed } from './feed-reader';
+import { User } from '../users/schemas/user.schema';
+import { MAX_ARTICLE_AGE_MS, readFeed, type FeedItem } from './feed-reader';
+import { ARTICLES_PER_KEYWORD, MAX_KEYWORD_SEARCHES, googleNewsSearchUrl } from './google-news';
 import { SummarizerService, SummarizerUnavailableError } from './summarizer.service';
 
 /** Petits lots : l'IA omet moins d'articles. */
@@ -20,6 +22,9 @@ export interface CollectReport {
   durationMs: number;
   sources: number;
   sourcesFailed: number;
+  /** Recherches Google News faites pour les mots-clés des utilisateurs. */
+  keywords: number;
+  keywordsFailed: number;
   newArticles: number;
   summarized: number;
   failed: number;
@@ -30,7 +35,7 @@ export interface CollectReport {
 }
 
 /**
- * Collecte mutualisée : lit chaque source active une fois pour tout le monde,
+ * Collecte mutualisée : lit chaque source active et fait chaque recherche par mot-clé une fois pour tout le monde,
  * enregistre les nouveaux articles, puis fait résumer et noter ceux qui sont en attente.
  */
 @Injectable()
@@ -42,6 +47,7 @@ export class CollectorService implements OnApplicationBootstrap, OnModuleDestroy
 
   constructor(
     @InjectModel(Article.name) private readonly articleModel: Model<Article>,
+    @InjectModel(User.name) private readonly userModel: Model<User>,
     private readonly sourcesService: SourcesService,
     private readonly summarizer: SummarizerService,
     private readonly config: ConfigService<Env, true>,
@@ -84,7 +90,10 @@ export class CollectorService implements OnApplicationBootstrap, OnModuleDestroy
     this.running = true;
     const startedAt = new Date();
     try {
-      const { sources, sourcesFailed, newArticles } = await this.collect();
+      const [fromSources, fromKeywords] = await Promise.all([this.collect(), this.searchKeywords()]);
+      const { sources, sourcesFailed } = fromSources;
+      const { keywords, keywordsFailed } = fromKeywords;
+      const newArticles = fromSources.newArticles + fromKeywords.newArticles;
       const { summarized, failed, stopped } = await this.summarizePending();
       const pending = await this.articleModel.countDocuments(CollectorService.toSummarizeFilter());
       const report: CollectReport = {
@@ -92,6 +101,8 @@ export class CollectorService implements OnApplicationBootstrap, OnModuleDestroy
         durationMs: Date.now() - startedAt.getTime(),
         sources,
         sourcesFailed,
+        keywords,
+        keywordsFailed,
         newArticles,
         summarized,
         failed,
@@ -100,7 +111,8 @@ export class CollectorService implements OnApplicationBootstrap, OnModuleDestroy
       };
       this.lastReport = report;
       this.logger.log(
-        `Collecte : ${newArticles} nouvel(s) article(s) sur ${sources} source(s) (${sourcesFailed} en erreur), ` +
+        `Collecte : ${newArticles} nouvel(s) article(s) sur ${sources} source(s) (${sourcesFailed} en erreur) ` +
+          `et ${keywords} mot(s)-clé(s) (${keywordsFailed} en erreur), ` +
           `${summarized} résumé(s), ${failed} échec(s), ${pending} en attente.`,
       );
       return report;
@@ -116,20 +128,9 @@ export class CollectorService implements OnApplicationBootstrap, OnModuleDestroy
       sources.map(async (source) => {
         try {
           const items = await readFeed(source.feedUrl);
-          let added = 0;
-          if (items.length > 0) {
-            const result = await this.articleModel.bulkWrite(
-              items.map(({ url, ...item }) => ({
-                updateOne: {
-                  filter: { url },
-                  update: { $setOnInsert: { ...item, sourceId: source._id } },
-                  upsert: true,
-                },
-              })),
-              { ordered: false },
-            );
-            added = result.upsertedCount;
-          }
+          const added = await this.save(items, ({ url, ...item }) => ({
+            updateOne: { filter: { url }, update: { $setOnInsert: { ...item, sourceId: source._id } }, upsert: true },
+          }));
           await this.sourcesService.recordFetch(source.id as string, null);
           return { ok: true, added };
         } catch (error) {
@@ -147,16 +148,81 @@ export class CollectorService implements OnApplicationBootstrap, OnModuleDestroy
     };
   }
 
-  /** Résume les articles en attente ou en échec, par lots, les plus récents d'abord. */
+  /**
+   * Fait une recherche Google News par mot-clé suivi (une seule pour tous les utilisateurs qui le suivent)
+   * et enregistre les articles trouvés, marqués du mot-clé.
+   */
+  private async searchKeywords(): Promise<{ keywords: number; keywordsFailed: number; newArticles: number }> {
+    const followed = await this.userModel.aggregate<{ _id: string }>([
+      { $match: { active: true, 'preferences.active': { $ne: false } } },
+      { $unwind: '$preferences.keywords' },
+      { $group: { _id: '$preferences.keywords', followers: { $sum: 1 } } },
+      { $sort: { followers: -1, _id: 1 } },
+      { $limit: MAX_KEYWORD_SEARCHES },
+    ]);
+    const baseUrl = this.config.get('GOOGLE_NEWS_URL', { infer: true });
+    const results = await Promise.all(
+      followed.map(async ({ _id: keyword }) => {
+        try {
+          const items = (await readFeed(googleNewsSearchUrl(baseUrl, keyword)))
+            .sort((a, b) => (b.publishedAt?.getTime() ?? 0) - (a.publishedAt?.getTime() ?? 0))
+            .slice(0, ARTICLES_PER_KEYWORD);
+          const added = await this.save(items, ({ url, ...item }) => ({
+            updateOne: {
+              filter: { url },
+              update: { $setOnInsert: item, $addToSet: { keywords: keyword } },
+              upsert: true,
+            },
+          }));
+          return { ok: true, added };
+        } catch (error) {
+          this.logger.warn(`Recherche « ${keyword} » impossible : ${error instanceof Error ? error.message : String(error)}`);
+          return { ok: false, added: 0 };
+        }
+      }),
+    );
+    return {
+      keywords: followed.length,
+      keywordsFailed: results.filter((result) => !result.ok).length,
+      newArticles: results.reduce((total, result) => total + result.added, 0),
+    };
+  }
+
+  /** Enregistre les articles lus ; renvoie le nombre de nouveaux. */
+  private async save(items: FeedItem[], toOperation: (item: FeedItem) => AnyBulkWriteOperation<Article>): Promise<number> {
+    if (items.length === 0) {
+      return 0;
+    }
+    const result = await this.articleModel.bulkWrite(items.map(toOperation), { ordered: false });
+    return result.upsertedCount;
+  }
+
+  /**
+   * Résume les articles en attente ou en échec, par lots, les plus récents d'abord.
+   * Ceux des mots-clés passent avant ceux des sources : ils ont été demandés explicitement
+   * et ne seraient sinon jamais résumés quand les flux apportent plus d'articles que le plafond.
+   */
   private async summarizePending(): Promise<{ summarized: number; failed: number; stopped: string | null }> {
     if (!this.summarizer.enabled) {
       return { summarized: 0, failed: 0, stopped: 'GEMINI_API_KEY absent : résumés désactivés.' };
     }
-    const queue = await this.articleModel
-      .find(CollectorService.toSummarizeFilter())
+    const filter = CollectorService.toSummarizeFilter();
+    const fromKeywords = await this.articleModel
+      .find({ ...filter, keywords: { $ne: [] } })
       .sort({ publishedAt: -1, createdAt: -1 })
       .limit(MAX_SUMMARIES_PER_RUN)
       .exec();
+    const remaining = MAX_SUMMARIES_PER_RUN - fromKeywords.length;
+    // limit(0) voudrait dire « sans limite » pour MongoDB.
+    const fromSources =
+      remaining > 0
+        ? await this.articleModel
+            .find({ ...filter, keywords: { $eq: [] } })
+            .sort({ publishedAt: -1, createdAt: -1 })
+            .limit(remaining)
+            .exec()
+        : [];
+    const queue = [...fromKeywords, ...fromSources];
 
     let summarized = 0;
     let failed = 0;
@@ -164,7 +230,12 @@ export class CollectorService implements OnApplicationBootstrap, OnModuleDestroy
       const batch = queue.slice(offset, offset + BATCH_SIZE);
       try {
         const summaries = await this.summarizer.summarize(
-          batch.map((article) => ({ url: article.url, title: article.title, snippet: article.snippet })),
+          batch.map((article) => ({
+            url: article.url,
+            title: article.title,
+            snippet: article.snippet,
+            keywords: article.keywords,
+          })),
         );
         for (const article of batch) {
           const summary = summaries.get(article.url);

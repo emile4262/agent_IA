@@ -14,7 +14,9 @@ import {
 export interface AdminArticleView {
   id: string;
   url: string;
-  sourceId: string;
+  /** null = trouvé par une recherche par mot-clé. */
+  sourceId: string | null;
+  keywords: string[];
   title: string;
   titleFr: string | null;
   topic: Topic | null;
@@ -69,7 +71,8 @@ export class ArticlesService {
     return {
       id: article.id as string,
       url: article.url,
-      sourceId: article.sourceId.toString(),
+      sourceId: article.sourceId?.toString() ?? null,
+      keywords: [...article.keywords],
       title: article.title,
       titleFr: article.titleFr,
       topic: article.topic,

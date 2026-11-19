@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
-import { Types, type Model } from 'mongoose';
+import { Types, type Model, type QueryFilter } from 'mongoose';
 import { schedule, type ScheduledTask } from 'node-cron';
 import { Article, type ArticleDocument } from '../articles/schemas/article.schema';
 import type { Env } from '../config/env.validation';
@@ -39,6 +39,8 @@ export interface DigestArticleView {
   title: string;
   url: string;
   topic: Topic;
+  /** Mot-clé qui a fait choisir l'article, null s'il vient d'un sujet fixe. */
+  keyword: string | null;
   score: number;
   summary: string;
 }
@@ -142,7 +144,7 @@ export class DigestService implements OnApplicationBootstrap, OnModuleDestroy {
       active: preferences.active,
       sendingDay: isSendingDay(date, preferences.frequency),
       delivered: delivered && DigestService.toDeliveryView(delivered),
-      articles: articles.map((article) => DigestService.toArticleView(article)),
+      articles: articles.map((article) => DigestService.toArticleView(article, user)),
     };
   }
 
@@ -183,7 +185,7 @@ export class DigestService implements OnApplicationBootstrap, OnModuleDestroy {
       userId: user._id,
       digestDate: date,
       kind: 'manual',
-      articles: DigestService.snapshot(articles),
+      articles: DigestService.snapshot(articles, user),
     });
     const sent = await this.deliver(delivery, user);
     return {
@@ -249,12 +251,12 @@ export class DigestService implements OnApplicationBootstrap, OnModuleDestroy {
       ? await this.deliveryModel
           .findOneAndUpdate(
             { _id: existing._id, status: 'failed', attempts: existing.attempts },
-            { status: 'sending', error: null, articles: DigestService.snapshot(articles), $inc: { attempts: 1 } },
+            { status: 'sending', error: null, articles: DigestService.snapshot(articles, user), $inc: { attempts: 1 } },
             { new: true },
           )
           .exec()
       : await this.deliveryModel
-          .create({ userId: user._id, digestDate: date, kind: 'scheduled', articles: DigestService.snapshot(articles) })
+          .create({ userId: user._id, digestDate: date, kind: 'scheduled', articles: DigestService.snapshot(articles, user) })
           .catch((error: unknown) => {
             if (typeof error === 'object' && error !== null && 'code' in error && error.code === DUPLICATE_KEY) {
               return null;
@@ -267,12 +269,22 @@ export class DigestService implements OnApplicationBootstrap, OnModuleDestroy {
     return (await this.deliver(delivery, user)) ? 'sent' : 'failed';
   }
 
-  /** Articles résumés récents qui correspondent aux préférences, jamais reçus, les mieux notés d'abord. */
+  /**
+   * Articles résumés récents qui correspondent aux préférences, jamais reçus, les mieux notés d'abord :
+   * ceux des sujets choisis venant des sources choisies, et ceux trouvés pour ses mots-clés.
+   */
   private async select(user: UserDocument, activeSourceIds: Types.ObjectId[], now = new Date()): Promise<ArticleDocument[]> {
     const preferences = user.preferences;
     const chosen = preferences.sourceIds;
     const sourceIds = chosen === null ? activeSourceIds : activeSourceIds.filter((id) => chosen.some((c) => c.equals(id)));
-    if (sourceIds.length === 0) {
+    const matches: QueryFilter<Article>[] = [];
+    if (preferences.topics.length > 0 && sourceIds.length > 0) {
+      matches.push({ topic: { $in: preferences.topics }, sourceId: { $in: sourceIds } });
+    }
+    if (preferences.keywords.length > 0) {
+      matches.push({ keywords: { $in: preferences.keywords } });
+    }
+    if (matches.length === 0) {
       return [];
     }
     const alreadySent = await this.deliveryModel.distinct('articles.articleId', {
@@ -284,10 +296,9 @@ export class DigestService implements OnApplicationBootstrap, OnModuleDestroy {
       .find({
         status: 'summarized',
         createdAt: { $gte: new Date(now.getTime() - SELECTION_WINDOW_MS) },
-        topic: { $in: preferences.topics },
-        sourceId: { $in: sourceIds },
         score: { $gte: preferences.minScore },
         _id: { $nin: alreadySent },
+        $or: matches,
       })
       .sort({ score: -1, publishedAt: -1 })
       .limit(preferences.maxArticles)
@@ -322,19 +333,21 @@ export class DigestService implements OnApplicationBootstrap, OnModuleDestroy {
     return user;
   }
 
-  private static snapshot(articles: ArticleDocument[]): DeliveredArticle[] {
+  private static snapshot(articles: ArticleDocument[], user: UserDocument): DeliveredArticle[] {
+    const followed = user.preferences.keywords;
     return articles.map((article) => ({
       articleId: article._id,
       title: article.titleFr ?? article.title,
       url: article.url,
       topic: article.topic!,
+      keyword: article.keywords.find((keyword) => followed.includes(keyword)) ?? null,
       score: article.score!,
       summary: article.summary!,
     }));
   }
 
-  static toArticleView(article: ArticleDocument): DigestArticleView {
-    const [snapshot] = DigestService.snapshot([article]);
+  static toArticleView(article: ArticleDocument, user: UserDocument): DigestArticleView {
+    const [snapshot] = DigestService.snapshot([article], user);
     return { id: article.id as string, ...DigestService.withoutId(snapshot) };
   }
 
@@ -356,6 +369,13 @@ export class DigestService implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   private static withoutId(article: DeliveredArticle): Omit<DigestArticleView, 'id'> {
-    return { title: article.title, url: article.url, topic: article.topic, score: article.score, summary: article.summary };
+    return {
+      title: article.title,
+      url: article.url,
+      topic: article.topic,
+      keyword: article.keyword ?? null,
+      score: article.score,
+      summary: article.summary,
+    };
   }
 }

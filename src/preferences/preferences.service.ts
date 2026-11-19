@@ -11,6 +11,8 @@ export interface PreferencesView {
   topics: Topic[];
   /** null = toutes les sources actives. */
   sourceIds: string[] | null;
+  /** Sujets libres, recherchés sur Google News. */
+  keywords: string[];
   minScore: number;
   maxArticles: number;
   sendTime: string;
@@ -46,6 +48,9 @@ export class PreferencesService {
     if (sourceIds !== undefined) {
       user.set('preferences.sourceIds', sourceIds && sourceIds.map((id) => new Types.ObjectId(id)));
     }
+    if (user.preferences.topics.length === 0 && user.preferences.keywords.length === 0) {
+      throw new BadRequestException('Choisissez au moins un sujet ou un mot-clé.');
+    }
     await user.save();
     return PreferencesService.toView(user);
   }
@@ -63,6 +68,7 @@ export class PreferencesService {
     return {
       topics: [...preferences.topics],
       sourceIds: preferences.sourceIds && preferences.sourceIds.map((id) => id.toString()),
+      keywords: [...preferences.keywords],
       minScore: preferences.minScore,
       maxArticles: preferences.maxArticles,
       sendTime: preferences.sendTime,

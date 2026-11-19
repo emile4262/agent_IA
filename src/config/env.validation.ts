@@ -18,6 +18,8 @@ export interface Env {
   gemini?: GeminiConfig;
   COLLECT_CRON: string | null;
   DIGEST_CRON: string | null;
+  /** Adresse de Google News, pour la recherche par mot-clé (modifiable pour les tests). */
+  GOOGLE_NEWS_URL: string;
 }
 
 export interface GeminiConfig {
@@ -41,6 +43,7 @@ const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-lite';
 const DEFAULT_COLLECT_CRON = '*/30 * * * *';
 /** Chaque minute : chaque utilisateur reçoit sa veille à la minute qu'il a choisie. */
 const DEFAULT_DIGEST_CRON = '* * * * *';
+const DEFAULT_GOOGLE_NEWS_URL = 'https://news.google.com';
 
 /**
  * Affiche au démarrage ce qui a été lu dans MONGODB_URI, mot de passe masqué,
@@ -190,6 +193,10 @@ export function validateEnv(config: Record<string, unknown>): Env {
   };
   const collectCron = cronOf('COLLECT_CRON', DEFAULT_COLLECT_CRON);
   const digestCron = cronOf('DIGEST_CRON', DEFAULT_DIGEST_CRON);
+  const googleNewsUrl = (stringOf('GOOGLE_NEWS_URL') || DEFAULT_GOOGLE_NEWS_URL).replace(/\/+$/, '');
+  if (!/^https?:\/\/[^\s/]+/.test(googleNewsUrl)) {
+    errors.push('GOOGLE_NEWS_URL doit être une adresse http(s)://.');
+  }
 
   if (errors.length > 0) {
     throw new Error(`Configuration invalide dans .env :\n- ${errors.join('\n- ')}`);
@@ -215,5 +222,6 @@ export function validateEnv(config: Record<string, unknown>): Env {
     gemini,
     COLLECT_CRON: collectCron,
     DIGEST_CRON: digestCron,
+    GOOGLE_NEWS_URL: googleNewsUrl,
   };
 }

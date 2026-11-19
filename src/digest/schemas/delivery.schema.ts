@@ -23,6 +23,10 @@ export class DeliveredArticle {
   @Prop({ type: String, required: true })
   topic!: Topic;
 
+  /** Mot-clé de l'utilisateur qui a fait choisir l'article, null s'il vient d'un sujet fixe. */
+  @Prop({ type: String, default: null })
+  keyword!: string | null;
+
   @Prop({ required: true })
   score!: number;
 

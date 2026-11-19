@@ -1,4 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -9,7 +10,9 @@ import {
   IsInt,
   IsMongoId,
   IsOptional,
+  IsString,
   IsTimeZone,
+  Length,
   Matches,
   Max,
   Min,
@@ -17,6 +20,7 @@ import {
 } from 'class-validator';
 import { TOPICS, type Topic } from '../../sources/topics';
 import { FREQUENCIES, type Frequency } from '../../users/schemas/preferences.schema';
+import { KEYWORD_MAX_LENGTH, KEYWORD_MIN_LENGTH, MAX_KEYWORDS, normalizeKeyword } from '../keywords';
 
 // Comme dans auth.dto.ts : règles vérifiées de bas en haut.
 
@@ -31,9 +35,27 @@ export class UpdatePreferencesDto {
   @Optional()
   @IsIn(TOPICS, { each: true, message: `Chaque sujet doit valoir ${TOPICS.join(', ')}.` })
   @ArrayUnique({ message: 'Un sujet ne peut apparaître qu’une fois.' })
-  @ArrayMinSize(1, { message: 'Choisissez au moins un sujet.' })
   @IsArray({ message: 'topics doit être une liste.' })
   topics?: Topic[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['flutter', 'mobile money'],
+    description: `Sujets libres (${MAX_KEYWORDS} au plus) : l’actualité correspondante est recherchée sur Google News.`,
+  })
+  @Optional()
+  @Length(KEYWORD_MIN_LENGTH, KEYWORD_MAX_LENGTH, {
+    each: true,
+    message: `Chaque mot-clé doit faire entre ${KEYWORD_MIN_LENGTH} et ${KEYWORD_MAX_LENGTH} caractères.`,
+  })
+  @IsString({ each: true, message: 'Chaque mot-clé doit être un texte.' })
+  @ArrayUnique({ message: 'Un mot-clé ne peut apparaître qu’une fois.' })
+  @ArrayMaxSize(MAX_KEYWORDS, { message: `${MAX_KEYWORDS} mots-clés au plus.` })
+  @IsArray({ message: 'keywords doit être une liste.' })
+  @Transform(({ value }: { value: unknown }) =>
+    Array.isArray(value) ? value.map((item) => (typeof item === 'string' ? normalizeKeyword(item) : item)) : value,
+  )
+  keywords?: string[];
 
   @ApiPropertyOptional({
     type: [String],

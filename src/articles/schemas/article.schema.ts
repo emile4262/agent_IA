@@ -9,16 +9,21 @@ export const MAX_SUMMARY_ATTEMPTS = 3;
 export type ArticleDocument = HydratedDocument<Article>;
 
 /**
- * Un article lu dans un flux RSS. Collecté et résumé une seule fois pour tous les utilisateurs ;
- * le tri par note se fait ensuite pour chacun (phase 4).
+ * Un article lu dans un flux RSS (une source, ou une recherche Google News par mot-clé).
+ * Collecté et résumé une seule fois pour tous les utilisateurs ; le tri par note se fait ensuite pour chacun.
  */
 @Schema({ timestamps: true })
 export class Article {
   @Prop({ required: true, unique: true })
   url!: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Source', required: true })
-  sourceId!: Types.ObjectId;
+  /** null = trouvé par une recherche par mot-clé, pas dans une source. */
+  @Prop({ type: Types.ObjectId, ref: 'Source', default: null })
+  sourceId!: Types.ObjectId | null;
+
+  /** Mots-clés dont la recherche a trouvé cet article. */
+  @Prop({ type: [String], default: () => [] })
+  keywords!: string[];
 
   @Prop({ required: true })
   title!: string;
@@ -61,3 +66,4 @@ export const ArticleSchema = SchemaFactory.createForClass(Article);
 // File d'attente des résumés, et sélection des articles prêts (phase 4).
 ArticleSchema.index({ status: 1, createdAt: -1 });
 ArticleSchema.index({ status: 1, summarizedAt: -1, score: -1 });
+ArticleSchema.index({ keywords: 1, status: 1 });

@@ -14,6 +14,9 @@ export class Preferences {
   @Prop({ type: [Types.ObjectId], default: null })
   sourceIds!: Types.ObjectId[] | null;
 
+  @Prop({ type: [String], default: () => [] })
+  keywords!: string[];
+
   @Prop({ default: 5 })
   minScore!: number;
 
