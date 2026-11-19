@@ -39,8 +39,8 @@ const SMTP_VARIABLES = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD', 
 const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-lite';
 /** Toutes les 30 minutes : les nouveaux articles sont prêts avant les envois. */
 const DEFAULT_COLLECT_CRON = '*/30 * * * *';
-/** Toutes les 15 minutes : chaque utilisateur reçoit sa veille au plus 15 minutes après son heure. */
-const DEFAULT_DIGEST_CRON = '*/15 * * * *';
+/** Chaque minute : chaque utilisateur reçoit sa veille à la minute qu'il a choisie. */
+const DEFAULT_DIGEST_CRON = '* * * * *';
 
 /**
  * Affiche au démarrage ce qui a été lu dans MONGODB_URI, mot de passe masqué,

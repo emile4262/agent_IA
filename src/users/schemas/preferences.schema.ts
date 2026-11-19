@@ -20,7 +20,7 @@ export class Preferences {
   @Prop({ default: 10 })
   maxArticles!: number;
 
-  @Prop({ default: '08:50' })
+  @Prop({ default: '08:00' })
   sendTime!: string;
 
   @Prop({ default: 'Africa/Abidjan' })
