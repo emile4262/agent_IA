@@ -24,7 +24,8 @@ export async function readFeed(feedUrl: string, now = Date.now()): Promise<FeedI
   const cutoff = now - MAX_ARTICLE_AGE_MS;
 
   return (feed.items ?? []).flatMap((item) => {
-    if (!item.title || !item.link || !cleanSnippet(item.title)) {
+    const url = item.link ? httpUrl(item.link) : null;
+    if (!item.title || !url || !cleanSnippet(item.title)) {
       return [];
     }
     const publishedAt = item.isoDate ?? item.pubDate;
@@ -34,13 +35,28 @@ export async function readFeed(feedUrl: string, now = Date.now()): Promise<FeedI
     }
     return [
       {
-        url: item.link.trim(),
+        url,
         title: cleanSnippet(item.title).slice(0, 300),
         snippet: cleanSnippet(item.contentSnippet ?? item.content ?? ''),
         publishedAt: Number.isFinite(publishedTime) ? new Date(publishedTime) : null,
       },
     ];
   });
+}
+
+/**
+ * Le lien de l'article s'il est en http(s), sinon null : un flux piégé ne doit pas pouvoir
+ * glisser un lien « javascript: » ou « data: » dans les e-mails de veille.
+ */
+export function httpUrl(value: string): string | null {
+  // Le lien est gardé tel quel (et non normalisé) : il sert à reconnaître les articles déjà collectés.
+  const link = value.trim();
+  try {
+    const { protocol } = new URL(link);
+    return protocol === 'http:' || protocol === 'https:' ? link : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Retire le HTML et décode les entités courantes d'un titre ou d'un extrait. */

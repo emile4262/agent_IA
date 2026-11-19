@@ -20,6 +20,12 @@ export interface Env {
   DIGEST_CRON: string | null;
   /** Adresse de Google News, pour la recherche par mot-clé (modifiable pour les tests). */
   GOOGLE_NEWS_URL: string;
+  /** Origines autorisées à appeler l'API depuis un navigateur (interface web). Vide : aucune. */
+  CORS_ORIGINS: string[];
+  /** Nombre de proxys devant l'API (hébergeur, load balancer), pour lire la vraie adresse IP. */
+  TRUST_PROXY: number;
+  /** Limite du nombre de requêtes par adresse IP ; désactivable hors production (tests). */
+  RATE_LIMIT: boolean;
 }
 
 export interface GeminiConfig {
@@ -198,6 +204,30 @@ export function validateEnv(config: Record<string, unknown>): Env {
     errors.push('GOOGLE_NEWS_URL doit être une adresse http(s)://.');
   }
 
+  const corsOrigins = stringOf('CORS_ORIGINS')
+    .split(',')
+    .map((origin) => origin.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+  const invalidOrigins = corsOrigins.filter((origin) => !/^https?:\/\/[^\s/]+$/.test(origin));
+  if (invalidOrigins.length > 0) {
+    errors.push(
+      `CORS_ORIGINS doit lister des adresses http(s):// séparées par des virgules, sans chemin (reçu : ${invalidOrigins.join(', ')}).`,
+    );
+  }
+
+  const rawTrustProxy = stringOf('TRUST_PROXY') || '0';
+  const trustProxy = Number(rawTrustProxy);
+  if (!Number.isInteger(trustProxy) || trustProxy < 0 || trustProxy > 10) {
+    errors.push(`TRUST_PROXY doit être le nombre de proxys devant l'API, de 0 à 10 (reçu : ${rawTrustProxy}).`);
+  }
+
+  const rawRateLimit = (stringOf('RATE_LIMIT') || 'on').toLowerCase();
+  if (rawRateLimit !== 'on' && rawRateLimit !== 'off') {
+    errors.push(`RATE_LIMIT doit valoir on ou off (reçu : ${rawRateLimit}).`);
+  } else if (rawRateLimit === 'off' && nodeEnv === 'production') {
+    errors.push('RATE_LIMIT=off est interdit en production.');
+  }
+
   if (errors.length > 0) {
     throw new Error(`Configuration invalide dans .env :\n- ${errors.join('\n- ')}`);
   }
@@ -205,6 +235,9 @@ export function validateEnv(config: Record<string, unknown>): Env {
   describeMongoUri(mongoUri);
   if (!smtp) {
     new Logger('Mail').warn('SMTP non configuré : les e-mails seront affichés dans la console au lieu d’être envoyés.');
+  }
+  if (rawRateLimit === 'off') {
+    new Logger('Sécurité').warn('RATE_LIMIT=off : aucune limite de requêtes. À réserver aux tests.');
   }
   if (!gemini) {
     new Logger('Collecte').warn('GEMINI_API_KEY absent : les articles seront collectés mais pas résumés.');
@@ -223,5 +256,8 @@ export function validateEnv(config: Record<string, unknown>): Env {
     COLLECT_CRON: collectCron,
     DIGEST_CRON: digestCron,
     GOOGLE_NEWS_URL: googleNewsUrl,
+    CORS_ORIGINS: corsOrigins,
+    TRUST_PROXY: trustProxy,
+    RATE_LIMIT: rawRateLimit !== 'off',
   };
 }

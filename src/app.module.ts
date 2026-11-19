@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { MongooseModule } from '@nestjs/mongoose';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { rateLimitOptions } from './common/rate-limit';
 import { validateEnv, type Env } from './config/env.validation';
 import { AuthModule } from './auth/auth.module';
 import { CollectorModule } from './collector/collector.module';
@@ -25,6 +28,11 @@ import { UsersModule } from './users/users.module';
         serverSelectionTimeoutMS: 10_000,
       }),
     }),
+    // Limite le nombre de requêtes par adresse IP (voir common/rate-limit.ts).
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>) => rateLimitOptions(config.get('RATE_LIMIT', { infer: true })),
+    }),
     HealthModule,
     UsersModule,
     AuthModule,
@@ -33,5 +41,6 @@ import { UsersModule } from './users/users.module';
     CollectorModule,
     DigestModule,
   ],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

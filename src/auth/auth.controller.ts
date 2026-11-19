@@ -1,5 +1,6 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { LoginThrottle, SensitiveThrottle } from '../common/rate-limit';
 import { SettingsService, type SettingsView } from '../settings/settings.service';
 import { AuthService, type AuthResponse, type MessageResponse } from './auth.service';
 import { AllowPendingPassword } from './decorators/allow-pending-password.decorator';
@@ -35,12 +36,14 @@ export class AuthController {
    * (invitation reçue par e-mail) ou un inviteCode (lien partagé par l'admin).
    */
   @Public()
+  @SensitiveThrottle()
   @Post('register')
   register(@Body() dto: RegisterDto): Promise<AuthResponse> {
     return this.authService.register(dto);
   }
 
   @Public()
+  @LoginThrottle()
   @Post('login')
   @HttpCode(HttpStatus.OK)
   login(@Body() dto: LoginDto): Promise<AuthResponse> {
@@ -72,6 +75,7 @@ export class AuthController {
 
   /** Lien de confirmation envoyé par e-mail à l'inscription. */
   @Public()
+  @SensitiveThrottle()
   @Get('verify-email')
   verifyEmail(@Query() query: VerifyEmailQueryDto): Promise<MessageResponse> {
     return this.authService.verifyEmail(query.token);
@@ -88,6 +92,7 @@ export class AuthController {
 
   /** Envoie un code de réinitialisation par e-mail. Réponse identique que le compte existe ou non. */
   @Public()
+  @SensitiveThrottle()
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
   forgotPassword(@Body() dto: ForgotPasswordDto): Promise<MessageResponse> {
@@ -96,6 +101,7 @@ export class AuthController {
 
   /** Choisit un nouveau mot de passe avec le code reçu par e-mail. */
   @Public()
+  @SensitiveThrottle()
   @Post('reset-password')
   @HttpCode(HttpStatus.OK)
   resetPassword(@Body() dto: ResetPasswordDto): Promise<MessageResponse> {
