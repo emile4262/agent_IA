@@ -1,44 +1,59 @@
-import 'dotenv/config';
-import cron from 'node-cron';
-import { filterAndCurateArticles, type CuratedArticle } from './AI';
-import { sendDailyReport } from './email';
-import { scrapeArticles } from './scraper';
+import 'reflect-metadata';
+import { Logger, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import helmet from 'helmet';
+import { AppModule } from './app.module';
+import type { Env } from './config/env.validation';
 
-async function sendDailyDigest(): Promise<void> {
-  const scrapedArticles = await scrapeArticles();
-  console.log(`${scrapedArticles.length} article(s) récupéré(s).`);
+async function bootstrap(): Promise<void> {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  app.enableShutdownHooks();
+  const config = app.get(ConfigService<Env, true>);
 
-  let curatedArticles: CuratedArticle[] = [];
-  let curationNotice: string | undefined;
-  try {
-    curatedArticles = await filterAndCurateArticles(scrapedArticles);
-  } catch (error) {
-    console.error('La curation IA a échoué ; envoi des articles bruts uniquement :', error);
-    curationNotice = "La sélection et les résumés par l'IA sont indisponibles pour le moment. Les titres collectés sont listés ci-dessous.";
-    console.log('Envoi du courriel de secours avec les articles et leurs liens.');
+  // En-têtes de sécurité (anti-clickjacking, anti-sniffing, HSTS…) et masquage de « X-Powered-By ».
+  app.use(helmet());
+  // Derrière un hébergeur ou un load balancer : lire la vraie adresse IP pour la limite de requêtes.
+  app.set('trust proxy', config.get('TRUST_PROXY', { infer: true }));
+  // Seule l'interface web déclarée peut appeler l'API depuis un navigateur.
+  const corsOrigins = config.get('CORS_ORIGINS', { infer: true });
+  if (corsOrigins.length > 0) {
+    app.enableCors({ origin: corsOrigins, methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'], maxAge: 3600 });
   }
 
-  await sendDailyReport(scrapedArticles, curatedArticles, curationNotice);
-  console.log('La veille quotidienne a été envoyée par e-mail.');
-}
-
-if (process.argv.includes('--send-now')) {
-  sendDailyDigest().catch((error) => {
-    console.error('Échec de la veille immédiate :', error);
-    process.exitCode = 1;
-  });
-} else {
-  cron.schedule(
-    '50 08 * * *',
-    async () => {
-      try {
-        await sendDailyDigest();
-      } catch (error) {
-        console.error('Échec de la veille quotidienne :', error);
-      }
-    },
-    { timezone: 'Africa/Abidjan', noOverlap: true },
+  // Vérifie le corps des requêtes à partir des DTO et refuse les champs inconnus.
+  app.useGlobalPipes(
+    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true, stopAtFirstError: true }),
   );
 
-  console.log('Envoi quotidien planifié à 8:50 (heure de Côte d’Ivoire).');
+  const port = config.get('PORT', { infer: true });
+  const withDocs = config.get('NODE_ENV', { infer: true }) !== 'production';
+
+  // Documentation interactive pour tester l'API depuis le navigateur (désactivée en production).
+  if (withDocs) {
+    const document = SwaggerModule.createDocument(
+      app,
+      new DocumentBuilder()
+        .setTitle('API Veille technologique')
+        .setDescription('Connectez-vous avec POST /auth/login, puis collez accessToken dans « Authorize ».')
+        .setVersion('1.0')
+        .addBearerAuth()
+        .build(),
+    );
+    SwaggerModule.setup('docs', app, document, { swaggerOptions: { persistAuthorization: true } });
+  }
+
+  await app.listen(port);
+
+  Logger.log(`API démarrée sur http://localhost:${port} (vérification : GET /health)`, 'Bootstrap');
+  if (withDocs) {
+    Logger.log(`Documentation Swagger : http://localhost:${port}/docs`, 'Bootstrap');
+  }
 }
+
+bootstrap().catch((error: unknown) => {
+  Logger.error(error instanceof Error ? error.message : error, undefined, 'Bootstrap');
+  process.exit(1);
+});

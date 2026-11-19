@@ -1,0 +1,15 @@
+# Jamais dans l'image : les secrets sont donnés par l'hébergeur.
+.env
+.env.*
+!.env.example
+
+node_modules
+dist
+.git
+.github
+test
+legacy
+scripts
+*.md
+Dockerfile
+.dockerignore
