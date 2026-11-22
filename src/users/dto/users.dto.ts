@@ -47,6 +47,13 @@ export class ListUsersQueryDto {
   @Min(1, { message: 'limit doit être au moins 1.' })
   @IsInt({ message: 'limit doit être un nombre entier.' })
   limit = 20;
+
+  @ApiPropertyOptional({ description: 'Filtre sur l’e-mail, le prénom ou le nom.', maxLength: 100 })
+  @IsOptional()
+  @Transform(trim)
+  @MaxLength(100, { message: 'search ne doit pas dépasser 100 caractères.' })
+  @IsString({ message: 'search doit être un texte.' })
+  search?: string;
 }
 
 export class SetUserStatusDto {

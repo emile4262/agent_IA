@@ -222,6 +222,30 @@ async function stopApi(api) {
     check('reset : ancien mdp refusé', (await call('POST', '/auth/login', { email: 'awa@exemple.ci', password: 'motdepasse-awa' })).status === 401);
     check('reset : nouveau mdp accepté', (await call('POST', '/auth/login', { email: 'awa@exemple.ci', password: 'nouveau-awa-1' })).status === 200);
 
+    // Lien cliquable de l'e-mail : page web avec formulaire
+    await backdate('password_reset');
+    mark = api.out.length;
+    await call('POST', '/auth/forgot-password', { email: 'awa@exemple.ci' });
+    await sleep(300);
+    const code3 = lastCode(mark);
+    check('e-mail : lien vers la page du nouveau mot de passe', api.out.slice(mark).includes(`http://localhost:3998/auth/reset-password?token=${code3}`));
+    const form = async (fields) => {
+      const res = await fetch(BASE + '/auth/reset-password/form', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(fields) });
+      return { status: res.status, html: await res.text() };
+    };
+    const resetPage = await fetch(`${BASE}/auth/reset-password?token=${code3}`);
+    const resetHtml = await resetPage.text();
+    check('GET page -> formulaire HTML avec le code', resetPage.status === 200 && resetPage.headers.get('content-type').startsWith('text/html') && resetHtml.includes(`value="${code3}"`));
+    check('page sans code -> 400', (await fetch(`${BASE}/auth/reset-password`)).status === 400);
+    const mismatch = await form({ token: code3, newPassword: 'nouveau-awa-3', confirmation: 'autre-chose-3' });
+    check('formulaire : confirmation différente -> 400, message', mismatch.status === 400 && mismatch.html.includes('pas identiques'));
+    check('formulaire : trop court -> 400', (await form({ token: code3, newPassword: '123', confirmation: '123' })).status === 400);
+    check('formulaire : faux code -> 400', (await form({ token: 'faux', newPassword: 'nouveau-awa-3', confirmation: 'nouveau-awa-3' })).status === 400);
+    const done = await form({ token: code3, newPassword: 'nouveau-awa-3', confirmation: 'nouveau-awa-3' });
+    check('formulaire -> 200, mot de passe modifié', done.status === 200 && done.html.includes('Mot de passe modifié'));
+    check('formulaire : nouveau mdp accepté', (await call('POST', '/auth/login', { email: 'awa@exemple.ci', password: 'nouveau-awa-3' })).status === 200);
+    check('formulaire : code à usage unique', (await form({ token: code3, newPassword: 'nouveau-awa-4', confirmation: 'nouveau-awa-4' })).status === 400);
+
     // Compte désactivé : pas d'e-mail de réinitialisation
     const awaId = (await call('GET', '/admin/users', undefined, adminTok)).body.items.find((u) => u.email === 'awa@exemple.ci').id;
     await call('PATCH', `/admin/users/${awaId}/status`, { active: false }, adminTok);

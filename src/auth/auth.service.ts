@@ -214,12 +214,19 @@ export class AuthService {
 
   private async verificationLink(user: UserDocument): Promise<string> {
     const token = await this.createSingleUseToken(user, 'email_verification', EMAIL_VERIFICATION_TTL_MS);
-    return `${this.config.get('APP_URL', { infer: true })}/auth/verify-email?token=${token}`;
+    return this.link('/verifier-email', '/auth/verify-email', token);
   }
 
   private async sendPasswordResetEmail(user: UserDocument): Promise<void> {
     const token = await this.createSingleUseToken(user, 'password_reset', PASSWORD_RESET_TTL_MS);
-    await this.mailService.send(passwordResetEmail(user.email, user.firstName, token));
+    const link = this.link('/reinitialiser', '/auth/reset-password', token);
+    await this.mailService.send(passwordResetEmail(user.email, user.firstName, token, link));
+  }
+
+  /** Lien d'un e-mail : page de l'interface web si WEB_URL est connu, sinon page servie par l'API. */
+  private link(webPath: string, apiPath: string, token: string): string {
+    const webUrl = this.config.get('WEB_URL', { infer: true });
+    return webUrl ? `${webUrl}${webPath}?token=${token}` : `${this.config.get('APP_URL', { infer: true })}${apiPath}?token=${token}`;
   }
 
   /** Crée un nouveau jeton et invalide les précédents du même type : seul le dernier e-mail compte. */
@@ -257,6 +264,7 @@ export class AuthService {
     const payload: AccessTokenPayload = { sub: user.id as string, role: user.role };
     const accessToken = await this.jwtService.signAsync(payload);
     const refreshToken = await this.createToken(user, 'refresh', REFRESH_TOKEN_TTL_MS);
+    await this.usersService.touch(user.id as string);
     return { accessToken, expiresIn: ACCESS_TOKEN_TTL_SECONDS, refreshToken, user: UsersService.toPublic(user) };
   }
 }

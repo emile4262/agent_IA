@@ -142,14 +142,15 @@ export function verificationEmail(to: string, firstName: string, link: string): 
   };
 }
 
-/** Pas encore d'interface web : la personne envoie le code à POST /auth/register. */
-export function invitationEmail(to: string, inviterName: string, token: string): MailMessage {
+/** Le lien ouvre le formulaire d'inscription de l'interface web ; sans interface, le code sert avec POST /auth/register. */
+export function invitationEmail(to: string, inviterName: string, token: string, link: string | null): MailMessage {
   return {
     to,
     subject: 'Invitation à rejoindre la veille technologique',
     text:
       'Bonjour,\n\n' +
       `${inviterName} vous invite à rejoindre la plateforme de veille technologique.\n\n` +
+      (link ? `Pour créer votre compte avec cette adresse (${to}), ouvrez ce lien (valable 7 jours) :\n${link}\n\n` : '') +
       `Votre code d’invitation (valable 7 jours) :\n${token}\n\n` +
       `Inscrivez-vous avec cette adresse (${to}) en envoyant ce code dans le champ invitationToken de POST /auth/register.\n\n` +
       'Si vous ne vous attendiez pas à cette invitation, ignorez ce message.',
@@ -160,33 +161,42 @@ export function invitationEmail(to: string, inviterName: string, token: string):
         '<p>Bonjour,</p>' +
         `<p><strong>${escapeHtml(inviterName)}</strong> vous invite à rejoindre la plateforme de veille technologique : ` +
         'chaque jour, une sélection d’articles résumés sur les sujets qui vous intéressent.</p>' +
-        '<p>Votre code d’invitation, valable 7 jours :</p>' +
-        code(token) +
-        `<p>Inscrivez-vous avec cette adresse (${escapeHtml(to)}) en envoyant ce code dans le champ ` +
-        '<code>invitationToken</code> de <code>POST /auth/register</code>.</p>',
+        (link
+          ? `<p>Créez votre compte avec cette adresse (${escapeHtml(to)}) :</p>` +
+            button(link, 'Créer mon compte') +
+            note('Ce lien est valable 7 jours et ne sert qu’une fois.') +
+            note('Votre code d’invitation, si le bouton ne fonctionne pas :') +
+            code(token)
+          : '<p>Votre code d’invitation, valable 7 jours :</p>' +
+            code(token) +
+            `<p>Inscrivez-vous avec cette adresse (${escapeHtml(to)}) en envoyant ce code dans le champ ` +
+            '<code>invitationToken</code> de <code>POST /auth/register</code>.</p>'),
       footer: 'Si vous ne vous attendiez pas à cette invitation, ignorez ce message.',
     }),
   };
 }
 
-/** Pas encore d'interface web : la personne colle le code dans POST /auth/reset-password. */
-export function passwordResetEmail(to: string, firstName: string, token: string): MailMessage {
+/** Le lien ouvre la page du nouveau mot de passe ; le code sert aussi directement avec POST /auth/reset-password. */
+export function passwordResetEmail(to: string, firstName: string, token: string, link: string): MailMessage {
   return {
     to,
     subject: 'Réinitialisation de votre mot de passe',
     text:
       `Bonjour ${firstName},\n\n` +
       `Voici votre code de réinitialisation (valable 1 heure) :\n${token}\n\n` +
-      'Envoyez-le avec votre nouveau mot de passe à POST /auth/reset-password.\n\n' +
+      `Pour choisir un nouveau mot de passe, ouvrez ce lien :\n${link}\n\n` +
+      'Vous pouvez aussi envoyer le code avec votre nouveau mot de passe à POST /auth/reset-password.\n\n' +
       'Si vous n’avez rien demandé, ignorez ce message : votre mot de passe reste inchangé.',
     html: layout({
       title: 'Réinitialisation du mot de passe',
-      preheader: 'Votre code de réinitialisation, valable 1 heure.',
+      preheader: 'Choisissez un nouveau mot de passe (lien valable 1 heure).',
       body:
         `<p>Bonjour ${escapeHtml(firstName)},</p>` +
-        '<p>Voici votre code de réinitialisation, valable 1 heure :</p>' +
-        code(token) +
-        '<p>Envoyez-le avec votre nouveau mot de passe à <code>POST /auth/reset-password</code>.</p>',
+        '<p>Pour choisir un nouveau mot de passe, cliquez sur le bouton ci-dessous :</p>' +
+        button(link, 'Choisir un nouveau mot de passe') +
+        note('Ce lien est valable 1 heure et ne sert qu’une fois.') +
+        note('Vous pouvez aussi envoyer ce code avec votre nouveau mot de passe à POST /auth/reset-password :') +
+        code(token),
       footer: 'Si vous n’avez rien demandé, ignorez ce message : votre mot de passe reste inchangé.',
     }),
   };

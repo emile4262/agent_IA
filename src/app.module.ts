@@ -7,9 +7,11 @@ import { rateLimitOptions } from './common/rate-limit';
 import { validateEnv, type Env } from './config/env.validation';
 import { AuthModule } from './auth/auth.module';
 import { CollectorModule } from './collector/collector.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { DigestModule } from './digest/digest.module';
 import { HealthModule } from './health/health.module';
 import { PreferencesModule } from './preferences/preferences.module';
+import { SecurityModule } from './security/security.module';
 import { SourcesModule } from './sources/sources.module';
 import { UsersModule } from './users/users.module';
 
@@ -40,6 +42,8 @@ import { UsersModule } from './users/users.module';
     PreferencesModule,
     CollectorModule,
     DigestModule,
+    SecurityModule,
+    DashboardModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

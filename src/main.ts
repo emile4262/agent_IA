@@ -7,6 +7,8 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import type { Env } from './config/env.validation';
+import { securityMonitor } from './security/security-monitor';
+import { SecurityService } from './security/security.service';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -17,6 +19,8 @@ async function bootstrap(): Promise<void> {
   app.use(helmet());
   // Derrière un hébergeur ou un load balancer : lire la vraie adresse IP pour la limite de requêtes.
   app.set('trust proxy', config.get('TRUST_PROXY', { infer: true }));
+  // Journal des connexions échouées, blocages et scans des robots (tableau de bord admin).
+  app.use(securityMonitor(app.get(SecurityService)));
   // Seule l'interface web déclarée peut appeler l'API depuis un navigateur.
   const corsOrigins = config.get('CORS_ORIGINS', { infer: true });
   if (corsOrigins.length > 0) {

@@ -33,6 +33,10 @@ export class User {
   @Prop({ default: true })
   active!: boolean;
 
+  /** Dernière connexion ou dernier renouvellement de session : mesure l'activité réelle du compte. */
+  @Prop({ type: Date, default: null })
+  lastSeenAt!: Date | null;
+
   /** Choix de veille ; les comptes créés avant la phase 2 reçoivent les valeurs par défaut à la lecture. */
   @Prop({ type: PreferencesSchema, default: () => ({}) })
   preferences!: Preferences;

@@ -28,6 +28,9 @@ export interface PublicUser {
 /** Vue administrateur : ajoute l'état du compte. */
 export interface AdminUserView extends PublicUser {
   active: boolean;
+  lastSeenAt: Date | null;
+  /** La veille est-elle envoyée (préférence « active ») ? */
+  digestActive: boolean;
 }
 
 export interface Paginated<T> {
@@ -108,15 +111,23 @@ export class UsersService {
     await user.deleteOne();
   }
 
-  async list(page: number, limit: number): Promise<Paginated<AdminUserView>> {
+  /** Note l'activité du compte, sans toucher à updatedAt. */
+  async touch(id: string): Promise<void> {
+    await this.userModel.updateOne({ _id: id }, { $set: { lastSeenAt: new Date() } }, { timestamps: false });
+  }
+
+  /** Liste des comptes ; search filtre sur l'e-mail, le prénom ou le nom (sans tenir compte de la casse). */
+  async list(page: number, limit: number, search?: string): Promise<Paginated<AdminUserView>> {
+    const pattern = search ? new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') : null;
+    const filter = pattern ? { $or: [{ email: pattern }, { firstName: pattern }, { lastName: pattern }] } : {};
     const [users, total] = await Promise.all([
       this.userModel
-        .find()
+        .find(filter)
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit)
         .exec(),
-      this.userModel.countDocuments(),
+      this.userModel.countDocuments(filter),
     ]);
     return { items: users.map((user) => UsersService.toAdminView(user)), total, page, limit };
   }
@@ -160,6 +171,11 @@ export class UsersService {
   }
 
   static toAdminView(user: UserDocument): AdminUserView {
-    return { ...UsersService.toPublic(user), active: user.active };
+    return {
+      ...UsersService.toPublic(user),
+      active: user.active,
+      lastSeenAt: user.lastSeenAt ?? null,
+      digestActive: user.preferences?.active ?? true,
+    };
   }
 }
