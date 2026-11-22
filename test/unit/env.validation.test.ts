@@ -32,6 +32,7 @@ describe('validateEnv', () => {
     assert.equal(env.DIGEST_CRON, '* * * * *');
     assert.equal(env.GOOGLE_NEWS_URL, 'https://news.google.com');
     assert.deepEqual(env.CORS_ORIGINS, []);
+    assert.equal(env.WEB_URL, null);
     assert.equal(env.TRUST_PROXY, 0);
     assert.equal(env.RATE_LIMIT, true);
   });
@@ -60,6 +61,12 @@ describe('validateEnv', () => {
   it('désactive un cron avec off et refuse une expression invalide', () => {
     assert.equal(validateEnv({ ...base, DIGEST_CRON: 'off' }).DIGEST_CRON, null);
     assert.match(errorOf({ ...base, COLLECT_CRON: 'toutes les heures' }), /COLLECT_CRON n'est pas une expression cron valide/);
+  });
+
+  it('WEB_URL : valeur donnée, sinon la première origine CORS', () => {
+    assert.equal(validateEnv({ ...base, WEB_URL: 'https://veille.exemple.ci/' }).WEB_URL, 'https://veille.exemple.ci');
+    assert.equal(validateEnv({ ...base, CORS_ORIGINS: 'http://localhost:3001,https://b.ci' }).WEB_URL, 'http://localhost:3001');
+    assert.match(errorOf({ ...base, WEB_URL: 'veille.exemple.ci' }), /WEB_URL/);
   });
 
   it('lit CORS_ORIGINS sans les barres finales', () => {

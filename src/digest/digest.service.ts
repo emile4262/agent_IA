@@ -23,6 +23,7 @@ import type { Frequency } from '../users/schemas/preferences.schema';
 import { User, type UserDocument } from '../users/schemas/user.schema';
 import type { Paginated } from '../users/users.service';
 import { dueDigestDate, isSendingDay, localClock } from './schedule';
+import { isValidUnsubscribe, unsubscribeLink } from './unsubscribe';
 import { Delivery, type DeliveredArticle, type DeliveryDocument, type DeliveryKind, type DeliveryStatus } from './schemas/delivery.schema';
 
 /** Seuls les articles collectés depuis moins longtemps sont proposés. */
@@ -205,6 +206,23 @@ export class DigestService implements OnApplicationBootstrap, OnModuleDestroy {
     };
   }
 
+  /**
+   * Lien de désinscription reçu par e-mail : met la veille en pause (preferences.active = false).
+   * Le compte reste ouvert ; la veille se réactive dans les préférences. Renvoie false si le lien est faux.
+   */
+  async unsubscribe(userId: unknown, signature: unknown): Promise<boolean> {
+    if (!this.isValidUnsubscribe(userId, signature)) {
+      return false;
+    }
+    await this.userModel.updateOne({ _id: userId }, { $set: { 'preferences.active': false } }).exec();
+    return true;
+  }
+
+  /** Vérifie le lien sans rien changer (page de confirmation). */
+  isValidUnsubscribe(userId: unknown, signature: unknown): userId is string {
+    return isValidUnsubscribe(userId, signature, this.config.get('JWT_ACCESS_SECRET', { infer: true }));
+  }
+
   /** Envoie la veille à chaque utilisateur dont l'heure est passée. Appelé par la planification. */
   async runScheduled(now = new Date()): Promise<DigestRunReport> {
     if (this.running) {
@@ -323,7 +341,8 @@ export class DigestService implements OnApplicationBootstrap, OnModuleDestroy {
   /** Envoie l'e-mail et enregistre le résultat ; renvoie false en cas d'échec. */
   private async deliver(delivery: DeliveryDocument, user: UserDocument): Promise<boolean> {
     try {
-      await this.mailService.send(digestEmail(user.email, user.firstName, delivery.digestDate, delivery.articles));
+      const link = unsubscribeLink(this.config.get('APP_URL', { infer: true }), user.id as string, this.config.get('JWT_ACCESS_SECRET', { infer: true }));
+      await this.mailService.send(digestEmail(user.email, user.firstName, delivery.digestDate, delivery.articles, link));
       delivery.status = 'sent';
       delivery.sentAt = new Date();
       delivery.error = null;

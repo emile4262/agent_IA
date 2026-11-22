@@ -98,12 +98,36 @@ const login = (email, password, headers) => call('POST', '/auth/login', { email,
       if ((await call('GET', '/users/me')).status === 429) firstBlocked = i;
     }
     check('101e requête non connectée -> 429', firstBlocked === 101, String(firstBlocked));
+    // Laisse le journal de sécurité enregistrer ce dernier blocage avant l'arrêt.
+    await new Promise((r) => setTimeout(r, 300));
     await stopApi(api);
 
     // --- Sans CORS_ORIGINS : aucun site ne peut appeler l'API depuis un navigateur ---
     api = await startApi(uri, {});
     const noCors = await fetch(BASE + '/health', { headers: { origin: 'http://localhost:5173' } });
     check('CORS désactivé par défaut', noCors.headers.get('access-control-allow-origin') === null);
+
+    // --- Journal de sécurité et tableau de bord (les essais ci-dessus sont restés en base) ---
+    check('scan d’une adresse inconnue -> 404', (await call('GET', '/wp-admin/setup.php?x=1')).status === 404);
+    const pendingTok = (await login('admin@exemple.ci', 'motdepasse-admin')).body.accessToken;
+    check('mot de passe provisoire : /admin/security -> 403', (await call('GET', '/admin/security', undefined, { authorization: `Bearer ${pendingTok}` })).status === 403);
+    const changed = await call('POST', '/auth/change-password', { currentPassword: 'motdepasse-admin', newPassword: 'temporaire-admin' }, { authorization: `Bearer ${pendingTok}` });
+    const auth = { authorization: `Bearer ${changed.body.accessToken}` };
+    await new Promise((r) => setTimeout(r, 300));
+    const sec = await call('GET', '/admin/security?days=1', undefined, auth);
+    check('GET /admin/security -> 200', sec.status === 200, JSON.stringify(sec.body).slice(0, 200));
+    check('connexions échouées comptées', sec.body.byType?.login_failed >= 11, String(sec.body.byType?.login_failed));
+    check('blocages 429 comptés', sec.body.byType?.rate_limited >= 5, String(sec.body.byType?.rate_limited));
+    check('accès admin refusé compté', sec.body.byType?.access_denied >= 1, String(sec.body.byType?.access_denied));
+    check('scan compté, sans la query string', sec.body.topIps?.some((ip) => ip.paths.includes('/wp-admin/setup.php')));
+    check('compte visé listé', sec.body.targetedEmails?.some((t) => t.email === 'admin@exemple.ci'));
+    check('days hors limite -> 400', (await call('GET', '/admin/security?days=31', undefined, auth)).status === 400);
+    check('sécurité sans jeton -> 401', (await call('GET', '/admin/security')).status === 401);
+    const dash = await call('GET', '/admin/dashboard', undefined, auth);
+    check('GET /admin/dashboard -> 200', dash.status === 200 && dash.body.users.total === 1 && dash.body.users.seen7d === 1, JSON.stringify(dash.body.users));
+    check('inscriptions sur 30 jours', dash.body.signups?.length === 30 && dash.body.signups.at(-1).count === 1);
+    // Retour au mot de passe d'origine pour la suite des tests.
+    await call('POST', '/auth/change-password', { currentPassword: 'temporaire-admin', newPassword: 'motdepasse-admin' }, auth);
     await stopApi(api);
 
     // --- Derrière un proxy : la vraie adresse IP de chaque visiteur est utilisée ---

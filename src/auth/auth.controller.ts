@@ -1,8 +1,10 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { BadRequestException, Body, Controller, Get, Header, HttpCode, HttpStatus, Post, Query, Res } from '@nestjs/common';
+import { ApiBearerAuth, ApiExcludeEndpoint, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { LoginThrottle, SensitiveThrottle } from '../common/rate-limit';
 import { SettingsService, type SettingsView } from '../settings/settings.service';
 import { AuthService, type AuthResponse, type MessageResponse } from './auth.service';
+import { RESET_PASSWORD_DONE, RESET_PASSWORD_INVALID, resetPasswordForm } from './reset-password.page';
 import { AllowPendingPassword } from './decorators/allow-pending-password.decorator';
 import { CurrentUser, type AuthUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
@@ -106,5 +108,53 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   resetPassword(@Body() dto: ResetPasswordDto): Promise<MessageResponse> {
     return this.authService.resetPassword(dto);
+  }
+
+  /** Page ouverte depuis le lien de l'e-mail : formulaire du nouveau mot de passe. */
+  @Public()
+  @ApiExcludeEndpoint()
+  @Get('reset-password')
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  @Header('Cache-Control', 'no-store')
+  resetPasswordPage(@Query('token') token: unknown, @Res({ passthrough: true }) res: Response): string {
+    if (typeof token !== 'string' || !token) {
+      res.status(HttpStatus.BAD_REQUEST);
+      return RESET_PASSWORD_INVALID;
+    }
+    return resetPasswordForm(token);
+  }
+
+  /** Envoi du formulaire de la page : même traitement que POST /auth/reset-password, réponse en HTML. */
+  @Public()
+  @SensitiveThrottle()
+  @ApiExcludeEndpoint()
+  @Post('reset-password/form')
+  @HttpCode(HttpStatus.OK)
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  @Header('Cache-Control', 'no-store')
+  async resetPasswordFromPage(@Body() form: Record<string, unknown>, @Res({ passthrough: true }) res: Response): Promise<string> {
+    const { token, newPassword, confirmation } = form;
+    if (typeof token !== 'string' || !token) {
+      res.status(HttpStatus.BAD_REQUEST);
+      return RESET_PASSWORD_INVALID;
+    }
+    if (typeof newPassword !== 'string' || newPassword.length < 8 || newPassword.length > 72) {
+      res.status(HttpStatus.BAD_REQUEST);
+      return resetPasswordForm(token, 'Le mot de passe doit faire entre 8 et 72 caractères.');
+    }
+    if (newPassword !== confirmation) {
+      res.status(HttpStatus.BAD_REQUEST);
+      return resetPasswordForm(token, 'Les deux mots de passe ne sont pas identiques.');
+    }
+    try {
+      await this.authService.resetPassword({ token, newPassword });
+      return RESET_PASSWORD_DONE;
+    } catch (error) {
+      if (!(error instanceof BadRequestException)) {
+        throw error;
+      }
+      res.status(HttpStatus.BAD_REQUEST);
+      return RESET_PASSWORD_INVALID;
+    }
   }
 }

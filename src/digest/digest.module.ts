@@ -7,6 +7,7 @@ import { User, UserSchema } from '../users/schemas/user.schema';
 import { AdminDigestController, DigestController } from './digest.controller';
 import { DigestService } from './digest.service';
 import { Delivery, DeliverySchema } from './schemas/delivery.schema';
+import { UnsubscribeController } from './unsubscribe.controller';
 
 @Module({
   imports: [
@@ -18,7 +19,7 @@ import { Delivery, DeliverySchema } from './schemas/delivery.schema';
     SourcesModule,
     MailModule,
   ],
-  controllers: [DigestController, AdminDigestController],
+  controllers: [DigestController, AdminDigestController, UnsubscribeController],
   providers: [DigestService],
 })
 export class DigestModule {}

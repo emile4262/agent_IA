@@ -15,7 +15,7 @@ export class AdminUsersController {
   /** Liste des inscrits, du plus récent au plus ancien. */
   @Get()
   list(@Query() query: ListUsersQueryDto): Promise<Paginated<AdminUserView>> {
-    return this.usersService.list(query.page, query.limit);
+    return this.usersService.list(query.page, query.limit, query.search || undefined);
   }
 
   /** Désactiver (active: false) ou réactiver (active: true) un compte. */

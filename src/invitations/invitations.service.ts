@@ -7,9 +7,11 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { isValidObjectId, type Model } from 'mongoose';
 import { randomToken, sha256 } from '../common/tokens';
+import type { Env } from '../config/env.validation';
 import { MailService } from '../mail/mail.service';
 import { invitationEmail } from '../mail/mail.templates';
 import { SettingsService } from '../settings/settings.service';
@@ -59,6 +61,7 @@ export class InvitationsService {
     private readonly usersService: UsersService,
     private readonly settingsService: SettingsService,
     private readonly mailService: MailService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   /**
@@ -138,7 +141,9 @@ export class InvitationsService {
     });
 
     try {
-      await this.mailService.send(invitationEmail(email, inviterName, token));
+      const webUrl = this.config.get('WEB_URL', { infer: true });
+      const link = webUrl ? `${webUrl}/inscription?invitation=${token}&email=${encodeURIComponent(email)}` : null;
+      await this.mailService.send(invitationEmail(email, inviterName, token, link));
     } catch (error) {
       this.logger.error(`Invitation non envoyée à ${email}`, error instanceof Error ? error.stack : error);
       await invitation.deleteOne();

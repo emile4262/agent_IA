@@ -14,6 +14,11 @@ export interface Env {
   ADMIN_EMAIL: string;
   ADMIN_PASSWORD?: string;
   APP_URL: string;
+  /**
+   * Adresse de l'interface web : les liens des e-mails (confirmation, invitation, mot de passe)
+   * y mènent. Par défaut, la première origine de CORS_ORIGINS ; null : pages servies par l'API.
+   */
+  WEB_URL: string | null;
   smtp?: SmtpConfig;
   gemini?: GeminiConfig;
   COLLECT_CRON: string | null;
@@ -215,6 +220,11 @@ export function validateEnv(config: Record<string, unknown>): Env {
     );
   }
 
+  const webUrl = (stringOf('WEB_URL') || corsOrigins[0] || '').replace(/\/+$/, '') || null;
+  if (webUrl && !/^https?:\/\/[^\s/]+/.test(webUrl)) {
+    errors.push('WEB_URL doit être une adresse http(s)://, par exemple http://localhost:3001.');
+  }
+
   const rawTrustProxy = stringOf('TRUST_PROXY') || '0';
   const trustProxy = Number(rawTrustProxy);
   if (!Number.isInteger(trustProxy) || trustProxy < 0 || trustProxy > 10) {
@@ -251,6 +261,7 @@ export function validateEnv(config: Record<string, unknown>): Env {
     ADMIN_EMAIL: adminEmail,
     ADMIN_PASSWORD: adminPassword || undefined,
     APP_URL: appUrl,
+    WEB_URL: webUrl,
     smtp,
     gemini,
     COLLECT_CRON: collectCron,
